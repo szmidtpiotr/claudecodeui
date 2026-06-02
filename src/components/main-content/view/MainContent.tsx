@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
+import GithubBoard from '../../github-board/GithubBoard';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
 import GitPanel from '../../git-panel/view/GitPanel';
 import PluginTabContent from '../../plugins/view/PluginTabContent';
@@ -26,6 +27,7 @@ type TaskMasterContextValue = {
 
 type TasksSettingsContextValue = {
   tasksEnabled: boolean;
+  githubIssuesEnabled: boolean;
   isTaskMasterInstalled: boolean | null;
   isTaskMasterReady: boolean | null;
 };
@@ -57,9 +59,10 @@ function MainContent({
   const { autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, autoScrollToBottom, sendByCtrlEnter } = preferences;
 
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
-  const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
+  const { tasksEnabled, isTaskMasterInstalled, githubIssuesEnabled } = useTasksSettings() as TasksSettingsContextValue;
 
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
+  const shouldShowGithubIssuesTab = Boolean(githubIssuesEnabled);
 
   const {
     editingFile,
@@ -91,7 +94,10 @@ function MainContent({
     if (!shouldShowTasksTab && activeTab === 'tasks') {
       setActiveTab('chat');
     }
-  }, [shouldShowTasksTab, activeTab, setActiveTab]);
+    if (!shouldShowGithubIssuesTab && activeTab === 'github-issues') {
+      setActiveTab('chat');
+    }
+  }, [shouldShowTasksTab, shouldShowGithubIssuesTab, activeTab, setActiveTab]);
 
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
@@ -116,6 +122,7 @@ function MainContent({
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         shouldShowTasksTab={shouldShowTasksTab}
+        shouldShowGithubIssuesTab={shouldShowGithubIssuesTab}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
       />
@@ -178,6 +185,12 @@ function MainContent({
           )}
 
           {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
+
+          {shouldShowGithubIssuesTab && activeTab === 'github-issues' && (
+            <div className="h-full overflow-y-auto p-4">
+              <GithubBoard />
+            </div>
+          )}
 
           <div className={`h-full overflow-hidden ${activeTab === 'preview' ? 'block' : 'hidden'}`} />
 
