@@ -15,6 +15,7 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   codex: 'gpt-5.4',
   gemini: 'gemini-3.1-pro-preview',
   opencode: 'anthropic/claude-sonnet-4-5',
+  azure: 'gpt-4o',
 };
 
 const getPermissionModesForProvider = (provider: LLMProvider): PermissionMode[] => {
@@ -75,7 +76,9 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
   });
-
+  const [azureModel, setAzureModel] = useState<string>(() => {
+    return localStorage.getItem('azure-model') || FALLBACK_DEFAULT_MODEL.azure;
+  });
   const [providerModelCatalog, setProviderModelCatalog] = useState<
     Partial<Record<LLMProvider, ProviderModelsDefinition>>
   >({});
@@ -113,12 +116,21 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
       return;
     }
 
-    setOpenCodeModel(model);
-    localStorage.setItem('opencode-model', model);
+    if (targetProvider === 'opencode') {
+      setOpenCodeModel(model);
+      localStorage.setItem('opencode-model', model);
+      return;
+    }
+
+    if (targetProvider === 'azure') {
+      setAzureModel(model);
+      localStorage.setItem('azure-model', model);
+      return;
+    }
   }, []);
 
   const loadProviderModels = useCallback(async (options: { bypassCache?: boolean } = {}) => {
-    const providers: LLMProvider[] = ['claude', 'cursor', 'codex', 'gemini', 'opencode'];
+    const providers: LLMProvider[] = ['claude', 'cursor', 'codex', 'gemini', 'opencode', 'azure'];
     const requestId = providerModelsRequestIdRef.current + 1;
     providerModelsRequestIdRef.current = requestId;
     const isHardRefresh = options.bypassCache === true;
@@ -262,6 +274,15 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   }, [providerModelCatalog.opencode, opencodeModel]);
 
   useEffect(() => {
+    const azure = providerModelCatalog.azure;
+    if (azure) {
+      const next = pickStoredOrCurrent('azure-model', azureModel, azure);
+      if (next !== azureModel) setAzureModel(next);
+      if (localStorage.getItem('azure-model') !== next) localStorage.setItem('azure-model', next);
+    }
+  }, [providerModelCatalog.azure, azureModel]);
+
+  useEffect(() => {
     if (!selectedSession?.id) {
       return;
     }
@@ -377,6 +398,8 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
     setGeminiModel,
     opencodeModel,
     setOpenCodeModel,
+    azureModel,
+    setAzureModel,
     permissionMode,
     setPermissionMode,
     pendingPermissionRequests,

@@ -10,6 +10,7 @@ import { spawnCursor } from '../cursor-cli.js';
 import { queryCodex } from '../openai-codex.js';
 import { spawnGemini } from '../gemini-cli.js';
 import { spawnOpenCode } from '../opencode-cli.js';
+import { queryAzure } from '../openai-azure.js';
 import { Octokit } from '@octokit/rest';
 import { providerModelsService } from '../modules/providers/services/provider-models.service.js';
 import { IS_PLATFORM } from '../constants/config.js';
@@ -993,6 +994,15 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: sessionId || null,
         model: model || opencodeModels.DEFAULT
+      }, writer);
+    } else if (provider === 'azure') {
+      console.log('☁️ Starting Azure OpenAI session');
+
+      await queryAzure(message.trim(), {
+        projectPath: finalProjectPath,
+        cwd: finalProjectPath,
+        sessionId: sessionId || null,
+        model: model || undefined,
       }, writer);
     }
 

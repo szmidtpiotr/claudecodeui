@@ -9,6 +9,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { createNormalizedMessage, getOpenCodeDatabasePath } from './shared/utils.js';
+import { loadAzureConfig } from './utils/azure-config.js';
 
 const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 
@@ -189,13 +190,32 @@ async function spawnOpenCode(command, options = {}, ws) {
       }
     };
 
-    void providerModelsService.resolveResumeModel('opencode', sessionId, model).then((resolvedModel) => {
+    void providerModelsService.resolveResumeModel('opencode', sessionId, model).then(async (resolvedModel) => {
       const args = ['run', '--format', 'json'];
       if (sessionId) {
         args.push('--session', sessionId);
       }
-      if (resolvedModel) {
-        args.push('--model', resolvedModel);
+
+      let spawnEnv = { ...process.env };
+      let effectiveModel = resolvedModel;
+
+      // If Azure deployment selected, configure OpenCode to use Azure endpoint via OpenAI-compat
+      if (resolvedModel?.startsWith('azure/')) {
+        const deploymentName = resolvedModel.slice(6);
+        const azureConfig = await loadAzureConfig();
+        if (azureConfig) {
+          const baseUrl = `${azureConfig.endpoint}/openai/deployments/${deploymentName}`;
+          spawnEnv = {
+            ...process.env,
+            OPENAI_API_KEY: azureConfig.apiKey,
+            OPENAI_BASE_URL: `${baseUrl}?api-version=${azureConfig.apiVersion}`,
+          };
+          effectiveModel = `openai/${deploymentName}`;
+        }
+      }
+
+      if (effectiveModel) {
+        args.push('--model', effectiveModel);
       }
       if (command && command.trim()) {
         args.push(command.trim());
@@ -204,7 +224,7 @@ async function spawnOpenCode(command, options = {}, ws) {
       opencodeProcess = spawnFunction('opencode', args, {
         cwd: workingDir,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: spawnEnv,
       });
 
       activeOpenCodeProcesses.set(processKey, opencodeProcess);

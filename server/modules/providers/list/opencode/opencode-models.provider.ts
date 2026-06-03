@@ -18,6 +18,9 @@ import {
   readOptionalString,
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore – JS utility, no types needed
+import { loadAzureConfig, fetchAzureDeployments } from '@/utils/azure-config.js';
 
 export const OPENCODE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
@@ -269,19 +272,39 @@ const runOpenCodeModelsCommand = (): Promise<string> => new Promise((resolve, re
   });
 });
 
+async function appendAzureDeployments(base: ProviderModelsDefinition): Promise<ProviderModelsDefinition> {
+  try {
+    const config = await loadAzureConfig();
+    if (!config) return base;
+
+    const deployments = await fetchAzureDeployments(config);
+    if (!deployments.length) return base;
+
+    const existingValues = new Set(base.OPTIONS.map((o: ProviderModelOption) => o.value));
+    const azureOptions: ProviderModelOption[] = deployments
+      .filter((id: string) => !existingValues.has(`azure/${id}`))
+      .map((id: string) => ({ value: `azure/${id}`, label: `Azure: ${id}`, description: 'Azure OpenAI deployment' }));
+
+    if (!azureOptions.length) return base;
+
+    return { OPTIONS: [...base.OPTIONS, ...azureOptions], DEFAULT: base.DEFAULT };
+  } catch {
+    return base;
+  }
+}
+
 export class OpenCodeProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
+    let base: ProviderModelsDefinition;
     try {
       const stdout = await runOpenCodeModelsCommand();
       const ids = parseOpenCodeModelsStdout(stdout);
-      if (ids.length === 0) {
-        return OPENCODE_FALLBACK_MODELS;
-      }
-
-      return buildOpenCodeDefinitionFromIds(ids);
+      base = ids.length === 0 ? OPENCODE_FALLBACK_MODELS : buildOpenCodeDefinitionFromIds(ids);
     } catch {
-      return OPENCODE_FALLBACK_MODELS;
+      base = OPENCODE_FALLBACK_MODELS;
     }
+
+    return appendAzureDeployments(base);
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

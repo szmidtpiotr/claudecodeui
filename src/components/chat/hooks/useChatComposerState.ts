@@ -43,6 +43,7 @@ interface UseChatComposerStateArgs {
   codexModel: string;
   geminiModel: string;
   opencodeModel: string;
+  azureModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
@@ -178,6 +179,7 @@ export function useChatComposerState({
   codexModel,
   geminiModel,
   opencodeModel,
+  azureModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -419,6 +421,7 @@ export function useChatComposerState({
       cursorModel,
       geminiModel,
       opencodeModel,
+      azureModel,
       handleBuiltInCommand,
       handleCustomCommand,
       input,
@@ -694,6 +697,8 @@ export function useChatComposerState({
                   ? 'gemini-settings'
                   : provider === 'opencode'
                     ? 'opencode-settings'
+                    : provider === 'azure'
+                      ? 'azure-settings'
                   : 'claude-settings';
           const savedSettings = safeLocalStorage.getItem(settingsKey);
           if (savedSettings) {
@@ -775,6 +780,18 @@ export function useChatComposerState({
             sessionSummary,
           },
         });
+      } else if (provider === 'azure') {
+        sendMessage({
+          type: 'azure-command',
+          command: messageContent,
+          sessionId: effectiveSessionId,
+          options: {
+            cwd: resolvedProjectPath,
+            projectPath: resolvedProjectPath,
+            sessionId: effectiveSessionId,
+            model: azureModel,
+          },
+        });
       } else {
         sendMessage({
           type: 'claude-command',
@@ -812,6 +829,7 @@ export function useChatComposerState({
       executeCommand,
       geminiModel,
       opencodeModel,
+      azureModel,
       isLoading,
       onSessionActive,
       onSessionProcessing,

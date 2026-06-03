@@ -52,6 +52,12 @@ import {
     isOpenCodeSessionActive,
     getActiveOpenCodeSessions,
 } from './opencode-cli.js';
+import {
+    queryAzure,
+    abortAzureSession,
+    isAzureSessionActive,
+    getActiveAzureSessions,
+} from './openai-azure.js';
 import sessionManager from './sessionManager.js';
 import {
     stripAnsiSequences,
@@ -74,6 +80,8 @@ import geminiRoutes from './routes/gemini.js';
 import pluginsRoutes from './routes/plugins.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import usageRoutes from './routes/usage.js';
+import notesRoutes from './routes/notes.js';
+import azureConfigRoutes from './routes/azure-config.js'; // Azure credentials for Codex/OpenCode integration
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
@@ -104,17 +112,20 @@ const wss = createWebSocketServer(server, {
         queryCodex,
         spawnGemini,
         spawnOpenCode,
+        queryAzure,
         abortClaudeSDKSession,
         abortCursorSession,
         abortCodexSession,
         abortGeminiSession,
         abortOpenCodeSession,
+        abortAzureSession,
         resolveToolApproval,
         isClaudeSDKSessionActive,
         isCursorSessionActive,
         isCodexSessionActive,
         isGeminiSessionActive,
         isOpenCodeSessionActive,
+        isAzureSessionActive,
         reconnectSessionWriter,
         getPendingApprovalsForSession,
         getActiveClaudeSDKSessions,
@@ -122,6 +133,7 @@ const wss = createWebSocketServer(server, {
         getActiveCodexSessions,
         getActiveGeminiSessions,
         getActiveOpenCodeSessions,
+        getActiveAzureSessions,
     },
     shell: {
         getSessionById: (sessionId) => sessionManager.getSession(sessionId),
@@ -210,6 +222,8 @@ app.use('/api/agent', agentRoutes);
 
 // Usage API Routes (protected)
 app.use('/api/usage', authenticateToken, usageRoutes);
+app.use('/api/notes', authenticateToken, notesRoutes);
+app.use('/api/azure', authenticateToken, azureConfigRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import PermissionContext from '../../../contexts/PermissionContext';
 import { QuickSettingsPanel } from '../../quick-settings-panel';
+import { NotebookPanel } from '../../notebook-panel';
 import type { ChatInterfaceProps, ChatMessage, Provider  } from '../types/types';
 import type { LLMProvider } from '../../../types/app';
 import { useChatProviderState } from '../hooks/useChatProviderState';
@@ -83,6 +84,8 @@ function ChatInterface({
     setGeminiModel,
     opencodeModel,
     setOpenCodeModel,
+    azureModel,
+    setAzureModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -206,6 +209,7 @@ function ChatInterface({
     codexModel,
     geminiModel,
     opencodeModel,
+    azureModel,
     isLoading,
     canAbortSession,
     tokenBudget,
@@ -384,7 +388,7 @@ function ChatInterface({
             ? t('messageTypes.gemini')
             : provider === 'opencode'
               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-            : t('messageTypes.claude');
+              : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -429,6 +433,8 @@ function ChatInterface({
           setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
+          azureModel={azureModel}
+          setAzureModel={setAzureModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}
@@ -525,18 +531,21 @@ function ChatInterface({
                     ? t('messageTypes.gemini')
                     : provider === 'opencode'
                       ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                    : t('messageTypes.claude'),
+                      : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
           onOpenSettings={onShowSettings}
-          currentModel={provider === 'cursor' ? cursorModel : provider === 'codex' ? codexModel : provider === 'gemini' ? geminiModel : claudeModel}
+          currentModel={provider === 'cursor' ? cursorModel : provider === 'codex' ? codexModel : provider === 'gemini' ? geminiModel : provider === 'opencode' ? opencodeModel : provider === 'azure' ? azureModel : claudeModel}
           onModelChange={(model) => {
             if (provider === 'cursor') setCursorModel(model);
             else if (provider === 'codex') setCodexModel(model);
             else if (provider === 'gemini') setGeminiModel(model);
+            else if (provider === 'opencode') setOpenCodeModel(model);
+            else if (provider === 'azure') setAzureModel(model);
             else setClaudeModel(model);
           }}
+          modelCatalogOptions={providerModelCatalog[provider as keyof typeof providerModelCatalog]?.OPTIONS}
           queuedPrompt={queuedPrompt}
           onClearQueuedPrompt={clearQueuedPrompt}
           onTogglePromptNav={() => setShowPromptNav((v) => !v)}
@@ -555,6 +564,7 @@ function ChatInterface({
       />
 
       <QuickSettingsPanel />
+      <NotebookPanel projectId={selectedProject?.projectId ?? null} />
 
       <CommandResultModal
         payload={commandModalPayload}

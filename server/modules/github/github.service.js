@@ -40,6 +40,10 @@ export async function listIssues(token, owner, repo, state = 'open') {
     return githubFetch(token, 'GET', `/repos/${owner}/${repo}/issues?state=${state}&per_page=100`);
 }
 
+export async function listIssueComments(token, owner, repo, issueNumber) {
+    return githubFetch(token, 'GET', `/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`);
+}
+
 export async function testConnection(token, owner, repo) {
     return githubFetch(token, 'GET', `/repos/${owner}/${repo}`);
 }

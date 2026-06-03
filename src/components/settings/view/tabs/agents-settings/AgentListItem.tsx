@@ -36,6 +36,10 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     name: 'OpenCode',
     color: 'zinc',
   },
+  azure: {
+    name: 'Azure OpenAI',
+    color: 'blue',
+  },
 };
 
 const colorClasses = {

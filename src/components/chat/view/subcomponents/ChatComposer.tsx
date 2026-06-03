@@ -107,6 +107,7 @@ interface ChatComposerProps {
   onOpenSettings?: () => void;
   currentModel: string;
   onModelChange: (model: string) => void;
+  modelCatalogOptions?: { value: string; label: string; description?: string }[];
   queuedPrompt?: string | null;
   onClearQueuedPrompt?: () => void;
   onTogglePromptNav?: () => void;
@@ -173,6 +174,7 @@ export default function ChatComposer({
   onOpenSettings,
   currentModel,
   onModelChange,
+  modelCatalogOptions,
   queuedPrompt,
   onClearQueuedPrompt,
   onTogglePromptNav,
@@ -457,6 +459,7 @@ export default function ChatComposer({
               provider={provider as string}
               currentModel={currentModel}
               onModelChange={onModelChange}
+              catalogOptions={modelCatalogOptions}
             />
 
             <TokenUsageSummary usage={tokenBudget} />

@@ -17,15 +17,28 @@ type Shortcut =
   | { type: 'arrow'; id: string; sequence: string; icon: 'up' | 'down' | 'left' | 'right' };
 
 const MOBILE_KEYS: Shortcut[] = [
+  // Ctrl combos (most used in terminal)
+  { type: 'key', id: 'ctrl-c', label: 'Ctrl+C', sequence: '\x03' },
+  { type: 'key', id: 'ctrl-d', label: 'Ctrl+D', sequence: '\x04' },
+  { type: 'key', id: 'ctrl-l', label: 'Ctrl+L', sequence: '\x0c' },
+  { type: 'key', id: 'ctrl-z', label: 'Ctrl+Z', sequence: '\x1a' },
+  // Navigation
   { type: 'key', id: 'esc', label: 'Esc', sequence: '\x1b' },
   { type: 'key', id: 'tab', label: 'Tab', sequence: '\t' },
   { type: 'key', id: 'shift-tab', label: '\u21e7Tab', sequence: '\x1b[Z' },
+  // Sticky modifiers for custom combos
   { type: 'modifier', id: 'ctrl', label: 'CTRL', modifier: 'ctrl' },
   { type: 'modifier', id: 'alt', label: 'ALT', modifier: 'alt' },
+  // Arrows
   { type: 'arrow', id: 'arrow-up', sequence: '\x1b[A', icon: 'up' },
   { type: 'arrow', id: 'arrow-down', sequence: '\x1b[B', icon: 'down' },
   { type: 'arrow', id: 'arrow-left', sequence: '\x1b[D', icon: 'left' },
   { type: 'arrow', id: 'arrow-right', sequence: '\x1b[C', icon: 'right' },
+  // Common chars hard to type on mobile
+  { type: 'key', id: 'pipe', label: '|', sequence: '|' },
+  { type: 'key', id: 'slash', label: '/', sequence: '/' },
+  { type: 'key', id: 'tilde', label: '~', sequence: '~' },
+  { type: 'key', id: 'dash', label: '-', sequence: '-' },
 ];
 
 const ARROW_ICONS = {
@@ -46,6 +59,8 @@ const preventFocusSteal = (e: React.PointerEvent) => e.preventDefault();
 
 const KEY_BTN =
   'shrink-0 rounded-md border border-gray-600 bg-gray-700 px-2.5 py-1.5 text-xs font-medium text-gray-100 transition-colors select-none active:bg-blue-600 active:text-white active:border-blue-600 disabled:cursor-not-allowed disabled:opacity-40';
+const KEY_BTN_CTRL =
+  'shrink-0 rounded-md border border-orange-700/60 bg-orange-900/40 px-2.5 py-1.5 text-xs font-medium text-orange-200 transition-colors select-none active:bg-orange-600 active:text-white disabled:cursor-not-allowed disabled:opacity-40';
 const KEY_BTN_ACTIVE =
   'shrink-0 rounded-md border border-blue-500 bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors select-none disabled:cursor-not-allowed disabled:opacity-40';
 const ICON_BTN =
@@ -160,6 +175,7 @@ export default function TerminalShortcutsPanel({
             );
           }
 
+          const isCtrlCombo = key.id.startsWith('ctrl-');
           return (
             <button
               type="button"
@@ -167,7 +183,7 @@ export default function TerminalShortcutsPanel({
               onPointerDown={preventFocusSteal}
               onClick={() => handleKeyPress(key.sequence)}
               disabled={!isConnected}
-              className={KEY_BTN}
+              className={isCtrlCombo ? KEY_BTN_CTRL : KEY_BTN}
             >
               {key.label}
             </button>

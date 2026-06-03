@@ -256,6 +256,17 @@ export const api = {
       }),
   },
 
+  notes: {
+    get: (projectId) =>
+      authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}`),
+
+    save: (projectId, content) =>
+      authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+  },
+
   // Browse filesystem for project suggestions
   browseFilesystem: (dirPath = null) => {
     const params = new URLSearchParams();

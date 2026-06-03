@@ -35,6 +35,8 @@ interface ChatMessagesPaneProps {
   setGeminiModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
+  azureModel: string;
+  setAzureModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -87,6 +89,8 @@ export default function ChatMessagesPane({
   setGeminiModel,
   opencodeModel,
   setOpenCodeModel,
+  azureModel,
+  setAzureModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -177,6 +181,8 @@ export default function ChatMessagesPane({
           setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
+          azureModel={azureModel}
+          setAzureModel={setAzureModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}

@@ -111,6 +111,14 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 `;
 
+export const PROJECT_NOTES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS project_notes (
+    project_id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -150,4 +158,6 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+
+${PROJECT_NOTES_TABLE_SCHEMA_SQL}
 `;

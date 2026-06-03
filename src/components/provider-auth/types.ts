@@ -18,6 +18,7 @@ export const PROVIDER_AUTH_STATUS_ENDPOINTS: Record<LLMProvider, string> = {
   codex: '/api/providers/codex/auth/status',
   gemini: '/api/providers/gemini/auth/status',
   opencode: '/api/providers/opencode/auth/status',
+  azure: '/api/providers/azure/auth/status',
 };
 
 export const createInitialProviderAuthStatusMap = (loading = true): ProviderAuthStatusMap => ({
@@ -26,4 +27,5 @@ export const createInitialProviderAuthStatusMap = (loading = true): ProviderAuth
   codex: { authenticated: false, email: null, method: null, error: null, loading },
   gemini: { authenticated: false, email: null, method: null, error: null, loading },
   opencode: { authenticated: false, email: null, method: null, error: null, loading },
+  azure: { authenticated: false, email: null, method: null, error: null, loading },
 });

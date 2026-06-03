@@ -29,6 +29,7 @@ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "gemini", name: "Google" },
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
+  { id: "azure", name: "Azure OpenAI" },
 ];
 
 const MOD_KEY =
@@ -50,6 +51,8 @@ type ProviderSelectionEmptyStateProps = {
   setGeminiModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
+  azureModel: string;
+  setAzureModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -92,6 +95,7 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "cursor") return "Cursor";
   if (p === "codex") return "Codex";
   if (p === "opencode") return "OpenCode";
+  if (p === "azure") return "Azure OpenAI";
   return "Gemini";
 }
 
@@ -111,6 +115,8 @@ export default function ProviderSelectionEmptyState({
   setGeminiModel,
   opencodeModel,
   setOpenCodeModel,
+  azureModel,
+  setAzureModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -133,7 +139,7 @@ export default function ProviderSelectionEmptyState({
     defaultValue: "Start the next task",
   });
 
-  const currentModel = getCurrentModel(
+  const currentModel = provider === 'azure' ? azureModel : getCurrentModel(
     provider,
     claudeModel,
     cursorModel,
@@ -164,12 +170,15 @@ export default function ProviderSelectionEmptyState({
       } else if (providerId === "opencode") {
         setOpenCodeModel(modelValue);
         localStorage.setItem("opencode-model", modelValue);
+      } else if (providerId === "azure") {
+        setAzureModel(modelValue);
+        localStorage.setItem("azure-model", modelValue);
       } else {
         setCursorModel(modelValue);
         localStorage.setItem("cursor-model", modelValue);
       }
     },
-    [setClaudeModel, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel],
+    [setClaudeModel, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel],
   );
 
   const handleModelSelect = useCallback(
@@ -315,6 +324,7 @@ export default function ProviderSelectionEmptyState({
                   model: opencodeModel,
                   defaultValue: "Ready with OpenCode {{model}}",
                 }),
+                azure: `Ready with Azure OpenAI (${azureModel})`,
               }[provider]
             }
           </p>

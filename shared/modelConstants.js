@@ -11,18 +11,18 @@
  * - API format ('claude-sonnet-4.5') - used by slash commands for display
  */
 export const CLAUDE_MODELS = {
-  // Models in SDK format (what the actual SDK accepts)
+  // Models in SDK shorthand format (what claude CLI --model flag accepts)
   OPTIONS: [
-    { value: "opus", label: "Opus" },
-    { value: "sonnet", label: "Sonnet" },
-    { value: "haiku", label: "Haiku" },
-    { value: "claude-opus-4-6", label: "Opus 4.6" },
-    { value: "opusplan", label: "Opus Plan" },
-    { value: "sonnet[1m]", label: "Sonnet [1M]" },
-    { value: "opus[1m]", label: "Opus [1M]" },
+    { value: "default", label: "Default", description: "Opus 4.8 (1M context) · recommended" },
+    { value: "opus", label: "Opus 4.8", description: "Most capable · $5/$25 per Mtok" },
+    { value: "opus[1m]", label: "Opus 4.8 (1M)", description: "Long context · $5/$25 per Mtok" },
+    { value: "sonnet", label: "Sonnet 4.6", description: "Balanced · $3/$15 per Mtok" },
+    { value: "sonnet[1m]", label: "Sonnet 4.6 (1M)", description: "Long context · $3/$15 per Mtok" },
+    { value: "haiku", label: "Haiku 4.5", description: "Fastest · $1/$5 per Mtok" },
+    { value: "opusplan", label: "Opus Plan", description: "Plan mode only" },
   ],
 
-  DEFAULT: "opus",
+  DEFAULT: "default",
 };
 
 /**
@@ -97,6 +97,22 @@ export const GEMINI_MODELS = {
 };
 
 /**
+ * Azure OpenAI Models — fallback list; actual deployed models fetched from endpoint.
+ */
+export const AZURE_MODELS = {
+  OPTIONS: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4o-mini", label: "GPT-4o mini" },
+    { value: "gpt-4", label: "GPT-4" },
+    { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+    { value: "gpt-35-turbo", label: "GPT-3.5 Turbo" },
+    { value: "o3", label: "o3" },
+    { value: "o4-mini", label: "o4-mini" },
+  ],
+  DEFAULT: "gpt-4o",
+};
+
+/**
  * Ordered provider registry. Display order in selection UIs.
  */
 export const PROVIDERS = [
@@ -104,4 +120,5 @@ export const PROVIDERS = [
   { id: "codex", name: "OpenAI", models: CODEX_MODELS },
   { id: "gemini", name: "Google", models: GEMINI_MODELS },
   { id: "cursor", name: "Cursor", models: CURSOR_MODELS },
+  { id: "azure", name: "Azure OpenAI", models: AZURE_MODELS },
 ];

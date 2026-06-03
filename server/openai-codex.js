@@ -14,11 +14,14 @@
  */
 
 import { Codex } from '@openai/codex-sdk';
+import { AzureOpenAI } from 'openai';
+import { randomUUID } from 'node:crypto';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createNormalizedMessage } from './shared/utils.js';
+import { loadAzureConfig } from './utils/azure-config.js';
 
 // Track active sessions
 const activeCodexSessions = new Map();
@@ -221,6 +224,70 @@ function mapPermissionModeToCodexOptions(permissionMode) {
  * @param {object} options - Options including cwd, sessionId, model, permissionMode
  * @param {WebSocket|object} ws - WebSocket connection or response writer
  */
+async function queryCodexViaAzure(command, deploymentName, sessionId, ws) {
+  const azureConfig = await loadAzureConfig();
+  if (!azureConfig) {
+    ws.send(JSON.stringify(createNormalizedMessage({
+      kind: 'error',
+      content: 'Azure OpenAI not configured. Add credentials via Settings → Agents → Codex.',
+      sessionId: sessionId || '',
+      provider: 'codex',
+    })));
+    return;
+  }
+
+  const capturedSessionId = sessionId || randomUUID();
+  if (!sessionId) {
+    if (ws.setSessionId) ws.setSessionId(capturedSessionId);
+    ws.send(JSON.stringify(createNormalizedMessage({
+      kind: 'session_created',
+      newSessionId: capturedSessionId,
+      sessionId: capturedSessionId,
+      provider: 'codex',
+    })));
+  }
+
+  const client = new AzureOpenAI({
+    endpoint: azureConfig.endpoint,
+    apiKey: azureConfig.apiKey,
+    apiVersion: azureConfig.apiVersion,
+  });
+
+  let fullContent = '';
+  try {
+    const stream = await client.chat.completions.create({
+      model: deploymentName,
+      messages: [{ role: 'user', content: command }],
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        fullContent += delta;
+        ws.send(JSON.stringify(createNormalizedMessage({
+          kind: 'stream_delta',
+          content: delta,
+          sessionId: capturedSessionId,
+          provider: 'codex',
+        })));
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    ws.send(JSON.stringify(createNormalizedMessage({
+      kind: 'error',
+      content: `Azure error: ${msg}`,
+      sessionId: capturedSessionId,
+      provider: 'codex',
+    })));
+    return;
+  }
+
+  ws.send(JSON.stringify(createNormalizedMessage({ kind: 'stream_end', sessionId: capturedSessionId, provider: 'codex' })));
+  ws.send(JSON.stringify(createNormalizedMessage({ kind: 'complete', sessionId: capturedSessionId, provider: 'codex' })));
+}
+
 export async function queryCodex(command, options = {}, ws) {
   const {
     sessionId,
@@ -236,6 +303,11 @@ export async function queryCodex(command, options = {}, ws) {
     sessionId,
     model,
   );
+
+  // Route azure/ prefix models to Azure OpenAI directly
+  if (resolvedModel?.startsWith('azure/')) {
+    return queryCodexViaAzure(command, resolvedModel.slice(6), sessionId, ws);
+  }
 
   const workingDirectory = cwd || projectPath || process.cwd();
   const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);

@@ -34,11 +34,13 @@ type ChatWebSocketDependencies = {
   queryCodex: (command: string, options: unknown, writer: WebSocketWriter) => Promise<unknown>;
   spawnGemini: (command: string, options: unknown, writer: WebSocketWriter) => Promise<unknown>;
   spawnOpenCode: (command: string, options: unknown, writer: WebSocketWriter) => Promise<unknown>;
+  queryAzure: (command: string, options: unknown, writer: WebSocketWriter) => Promise<unknown>;
   abortClaudeSDKSession: (sessionId: string) => Promise<boolean>;
   abortCursorSession: (sessionId: string) => boolean;
   abortCodexSession: (sessionId: string) => boolean;
   abortGeminiSession: (sessionId: string) => boolean;
   abortOpenCodeSession: (sessionId: string) => boolean;
+  abortAzureSession: (sessionId: string) => boolean;
   resolveToolApproval: (
     requestId: string,
     payload: {
@@ -53,6 +55,7 @@ type ChatWebSocketDependencies = {
   isCodexSessionActive: (sessionId: string) => boolean;
   isGeminiSessionActive: (sessionId: string) => boolean;
   isOpenCodeSessionActive: (sessionId: string) => boolean;
+  isAzureSessionActive: (sessionId: string) => boolean;
   reconnectSessionWriter: (sessionId: string, ws: WebSocket) => boolean;
   getPendingApprovalsForSession: (sessionId: string) => unknown[];
   getActiveClaudeSDKSessions: () => unknown;
@@ -60,13 +63,14 @@ type ChatWebSocketDependencies = {
   getActiveCodexSessions: () => unknown;
   getActiveGeminiSessions: () => unknown;
   getActiveOpenCodeSessions: () => unknown;
+  getActiveAzureSessions: () => unknown;
 };
 
 /**
  * Normalizes potentially invalid provider names coming from websocket payloads.
  */
 function readProvider(value: unknown): LLMProvider {
-  if (value === 'claude' || value === 'cursor' || value === 'codex' || value === 'gemini' || value === 'opencode') {
+  if (value === 'claude' || value === 'cursor' || value === 'codex' || value === 'gemini' || value === 'opencode' || value === 'azure') {
     return value;
   }
 
@@ -147,6 +151,11 @@ export function handleChatConnection(
         return;
       }
 
+      if (messageType === 'azure-command') {
+        await dependencies.queryAzure(data.command ?? '', data.options, writer);
+        return;
+      }
+
       if (messageType === 'cursor-resume') {
         await dependencies.spawnCursor(
           '',
@@ -173,6 +182,8 @@ export function handleChatConnection(
           success = dependencies.abortGeminiSession(sessionId);
         } else if (provider === 'opencode') {
           success = dependencies.abortOpenCodeSession(sessionId);
+        } else if (provider === 'azure') {
+          success = dependencies.abortAzureSession(sessionId);
         } else {
           success = await dependencies.abortClaudeSDKSession(sessionId);
         }
@@ -231,6 +242,8 @@ export function handleChatConnection(
           isActive = dependencies.isGeminiSessionActive(sessionId);
         } else if (provider === 'opencode') {
           isActive = dependencies.isOpenCodeSessionActive(sessionId);
+        } else if (provider === 'azure') {
+          isActive = dependencies.isAzureSessionActive(sessionId);
         } else {
           isActive = dependencies.isClaudeSDKSessionActive(sessionId);
         }
@@ -272,6 +285,7 @@ export function handleChatConnection(
             codex: dependencies.getActiveCodexSessions(),
             gemini: dependencies.getActiveGeminiSessions(),
             opencode: dependencies.getActiveOpenCodeSessions(),
+            azure: dependencies.getActiveAzureSessions(),
           },
         });
       }

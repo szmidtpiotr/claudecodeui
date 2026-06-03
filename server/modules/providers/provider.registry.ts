@@ -1,3 +1,4 @@
+import { AzureProvider } from '@/modules/providers/list/azure/azure.provider.js';
 import { ClaudeProvider } from '@/modules/providers/list/claude/claude.provider.js';
 import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js';
 import { CursorProvider } from '@/modules/providers/list/cursor/cursor.provider.js';
@@ -8,6 +9,7 @@ import type { LLMProvider } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
 const providers: Record<LLMProvider, IProvider> = {
+  azure: new AzureProvider(),
   claude: new ClaudeProvider(),
   codex: new CodexProvider(),
   cursor: new CursorProvider(),

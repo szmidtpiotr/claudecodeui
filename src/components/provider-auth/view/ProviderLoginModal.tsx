@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { ExternalLink, KeyRound, X } from 'lucide-react';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
 import { DEFAULT_PROJECT_FOR_EMPTY_SHELL, IS_PLATFORM } from '../../../constants/config';
+import { authenticatedFetch } from '../../../utils/api';
 import type { LLMProvider } from '../../../types/app';
 
 type ProviderLoginModalProps = {
@@ -49,6 +51,7 @@ const getProviderTitle = (provider: LLMProvider) => {
   if (provider === 'cursor') return 'Cursor CLI Login';
   if (provider === 'codex') return 'Codex CLI Login';
   if (provider === 'opencode') return 'OpenCode CLI Login';
+  if (provider === 'azure') return 'Azure OpenAI Configuration';
   return 'Gemini CLI Configuration';
 };
 
@@ -60,6 +63,13 @@ export default function ProviderLoginModal({
   customCommand,
   isAuthenticated = false,
 }: ProviderLoginModalProps) {
+  const [azureEndpoint, setAzureEndpoint] = useState('');
+  const [azureApiKey, setAzureApiKey] = useState('');
+  const [azureApiVersion, setAzureApiVersion] = useState('2024-12-01-preview');
+  const [azureSaving, setAzureSaving] = useState(false);
+  const [azureError, setAzureError] = useState<string | null>(null);
+  const [azureSaved, setAzureSaved] = useState(false);
+
   if (!isOpen) {
     return null;
   }
@@ -69,7 +79,28 @@ export default function ProviderLoginModal({
 
   const handleComplete = (exitCode: number) => {
     onComplete?.(exitCode);
-    // Keep the modal open so users can read terminal output before closing.
+  };
+
+  const handleAzureSave = async () => {
+    setAzureError(null);
+    setAzureSaving(true);
+    try {
+      const res = await authenticatedFetch('/api/azure/config', {
+        method: 'POST',
+        body: JSON.stringify({ endpoint: azureEndpoint, apiKey: azureApiKey, apiVersion: azureApiVersion }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || !data.success) {
+        setAzureError(data.error || 'Failed to save configuration');
+      } else {
+        setAzureSaved(true);
+        onComplete?.(0);
+      }
+    } catch (err) {
+      setAzureError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setAzureSaving(false);
+    }
   };
 
   return (
@@ -87,7 +118,66 @@ export default function ProviderLoginModal({
         </div>
 
         <div className="flex-1 overflow-hidden">
-          {provider === 'gemini' ? (
+          {provider === 'azure' ? (
+            <div className="flex h-full flex-col items-center justify-center bg-gray-50 p-8 dark:bg-gray-900/50">
+              <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+                <KeyRound className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h4 className="mb-2 text-xl font-medium text-gray-900 dark:text-white">Azure OpenAI Credentials</h4>
+              <p className="mb-6 max-w-md text-center text-sm text-gray-600 dark:text-gray-400">
+                Enter your Azure OpenAI endpoint and API key from the Azure portal.
+              </p>
+              <div className="w-full max-w-md space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">Endpoint URL</label>
+                  <input
+                    type="url"
+                    value={azureEndpoint}
+                    onChange={(e) => setAzureEndpoint(e.target.value)}
+                    placeholder="https://your-resource.openai.azure.com"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">API Key</label>
+                  <input
+                    type="password"
+                    value={azureApiKey}
+                    onChange={(e) => setAzureApiKey(e.target.value)}
+                    placeholder="Your Azure OpenAI API key"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-white">API Version</label>
+                  <input
+                    type="text"
+                    value={azureApiVersion}
+                    onChange={(e) => setAzureApiVersion(e.target.value)}
+                    placeholder="2024-12-01-preview"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                {azureError && <p className="text-sm text-red-600 dark:text-red-400">{azureError}</p>}
+                {azureSaved && <p className="text-sm text-green-600 dark:text-green-400">Configuration saved successfully.</p>}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => void handleAzureSave()}
+                    disabled={azureSaving || !azureEndpoint || !azureApiKey}
+                    className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {azureSaving ? 'Saving...' : 'Save Configuration'}
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : provider === 'gemini' ? (
             <div className="flex h-full flex-col items-center justify-center bg-gray-50 p-8 text-center dark:bg-gray-900/50">
               <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
                 <KeyRound className="h-8 w-8 text-blue-600 dark:text-blue-400" />

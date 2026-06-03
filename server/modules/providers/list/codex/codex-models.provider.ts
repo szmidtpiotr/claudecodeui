@@ -18,6 +18,9 @@ import {
   readOptionalString,
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore – JS utility, no types needed
+import { loadAzureConfig, fetchAzureDeployments } from '@/utils/azure-config.js';
 
 export const CODEX_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
@@ -85,8 +88,30 @@ const buildCodexModelsDefinition = (models: CodexCachedModel[]): ProviderModelsD
   };
 };
 
+async function appendAzureDeployments(base: ProviderModelsDefinition): Promise<ProviderModelsDefinition> {
+  try {
+    const config = await loadAzureConfig();
+    if (!config) return base;
+
+    const deployments = await fetchAzureDeployments(config);
+    if (!deployments.length) return base;
+
+    const existingValues = new Set(base.OPTIONS.map((o: ProviderModelOption) => o.value));
+    const azureOptions: ProviderModelOption[] = deployments
+      .filter((id: string) => !existingValues.has(`azure/${id}`))
+      .map((id: string) => ({ value: `azure/${id}`, label: `Azure: ${id}`, description: 'Azure OpenAI deployment' }));
+
+    if (!azureOptions.length) return base;
+
+    return { OPTIONS: [...base.OPTIONS, ...azureOptions], DEFAULT: base.DEFAULT };
+  } catch {
+    return base;
+  }
+}
+
 export class CodexProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
+    let base: ProviderModelsDefinition;
     try {
       const raw = await readFile(CODEX_MODELS_CACHE_PATH, 'utf8');
       const parsed = readObjectRecord(JSON.parse(raw));
@@ -94,10 +119,12 @@ export class CodexProviderModels implements IProviderModels {
         ? parsed.models.filter(isCodexCachedModel)
         : [];
 
-      return buildCodexModelsDefinition(models);
+      base = buildCodexModelsDefinition(models);
     } catch {
-      return CODEX_FALLBACK_MODELS;
+      base = CODEX_FALLBACK_MODELS;
     }
+
+    return appendAzureDeployments(base);
   }
 
   async getCurrentActiveModel(): Promise<ProviderCurrentActiveModel> {

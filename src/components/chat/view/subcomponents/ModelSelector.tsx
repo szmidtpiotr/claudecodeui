@@ -3,27 +3,30 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { CLAUDE_MODELS, CURSOR_MODELS, CODEX_MODELS, GEMINI_MODELS } from '../../../../../shared/modelConstants';
 
+type ModelOption = { value: string; label: string; description?: string };
+
 type ModelSelectorProps = {
   provider: string;
   currentModel: string;
   onModelChange: (model: string) => void;
+  catalogOptions?: ModelOption[];
 };
 
-function getOptionsForProvider(provider: string) {
+function getOptionsForProvider(provider: string): ModelOption[] {
   if (provider === 'cursor') return CURSOR_MODELS.OPTIONS;
   if (provider === 'codex') return CODEX_MODELS.OPTIONS;
   if (provider === 'gemini') return GEMINI_MODELS.OPTIONS;
   return CLAUDE_MODELS.OPTIONS;
 }
 
-export default function ModelSelector({ provider, currentModel, onModelChange }: ModelSelectorProps) {
+export default function ModelSelector({ provider, currentModel, onModelChange, catalogOptions }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
 
-  const options = getOptionsForProvider(provider);
+  const options = catalogOptions && catalogOptions.length > 0 ? catalogOptions : getOptionsForProvider(provider);
   const currentLabel = options.find((m) => m.value === currentModel)?.label ?? currentModel;
 
   const closeDropdown = useCallback(() => setIsOpen(false), []);
@@ -134,10 +137,15 @@ export default function ModelSelector({ provider, currentModel, onModelChange }:
                     isSelected ? 'bg-accent/60 font-medium text-foreground' : 'text-muted-foreground'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span>{option.label}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span>{option.label}</span>
+                      {option.description && (
+                        <span className="mt-0.5 text-[10px] leading-tight text-muted-foreground/70 font-normal">{option.description}</span>
+                      )}
+                    </div>
                     {isSelected && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                     )}
                   </div>
                 </button>
