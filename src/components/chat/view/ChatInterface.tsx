@@ -538,12 +538,14 @@ function ChatInterface({
           onOpenSettings={onShowSettings}
           currentModel={provider === 'cursor' ? cursorModel : provider === 'codex' ? codexModel : provider === 'gemini' ? geminiModel : provider === 'opencode' ? opencodeModel : provider === 'azure' ? azureModel : claudeModel}
           onModelChange={(model) => {
-            if (provider === 'cursor') setCursorModel(model);
-            else if (provider === 'codex') setCodexModel(model);
-            else if (provider === 'gemini') setGeminiModel(model);
-            else if (provider === 'opencode') setOpenCodeModel(model);
-            else if (provider === 'azure') setAzureModel(model);
-            else setClaudeModel(model);
+            // Save to localStorage immediately so the catalog-sync effect
+            // doesn't read the old stored value and override this selection.
+            if (provider === 'cursor') { setCursorModel(model); localStorage.setItem('cursor-model', model); }
+            else if (provider === 'codex') { setCodexModel(model); localStorage.setItem('codex-model', model); }
+            else if (provider === 'gemini') { setGeminiModel(model); localStorage.setItem('gemini-model', model); }
+            else if (provider === 'opencode') { setOpenCodeModel(model); localStorage.setItem('opencode-model', model); }
+            else if (provider === 'azure') { setAzureModel(model); localStorage.setItem('azure-model', model); }
+            else { setClaudeModel(model); localStorage.setItem('claude-model', model); }
           }}
           modelCatalogOptions={providerModelCatalog[provider as keyof typeof providerModelCatalog]?.OPTIONS}
           queuedPrompt={queuedPrompt}

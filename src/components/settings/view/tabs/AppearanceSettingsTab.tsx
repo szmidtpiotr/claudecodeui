@@ -6,6 +6,8 @@ import SettingsCard from '../SettingsCard';
 import SettingsRow from '../SettingsRow';
 import SettingsSection from '../SettingsSection';
 import SettingsToggle from '../SettingsToggle';
+import { HANDLE_POSITION_STORAGE_KEY } from '../../../quick-settings-panel/constants';
+import { NOTEBOOK_HANDLE_POSITION_KEY } from '../../../notebook-panel/hooks/useNotebookHandleDrag';
 
 type AppearanceSettingsTabProps = {
   projectSortOrder: ProjectSortOrder;
@@ -63,6 +65,27 @@ export default function AppearanceSettingsTab({
               <option value="name">{t('appearanceSettings.projectSorting.alphabetical')}</option>
               <option value="date">{t('appearanceSettings.projectSorting.recentActivity')}</option>
             </select>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Panel Handles">
+        <SettingsCard>
+          <SettingsRow
+            label="Reset handle positions"
+            description="Restore Quick Settings and Notebook handles to their default vertical positions. Page will reload."
+          >
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.removeItem(HANDLE_POSITION_STORAGE_KEY);
+                localStorage.removeItem(NOTEBOOK_HANDLE_POSITION_KEY);
+                window.location.reload();
+              }}
+              className="rounded-lg border border-input bg-card px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+            >
+              Reset positions
+            </button>
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>

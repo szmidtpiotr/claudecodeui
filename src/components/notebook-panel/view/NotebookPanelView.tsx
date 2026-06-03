@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { BookOpen, ChevronRight, Edit3, Eye } from 'lucide-react';
+import { BookOpen, ChevronRight, Edit3, Eye, GripVertical } from 'lucide-react';
 import { useNotebook } from '../hooks/useNotebook';
+import { useNotebookHandleDrag } from '../hooks/useNotebookHandleDrag';
 
-const HANDLE_Y_PERCENT = 72;
 const DEFAULT_WIDTH = 320;
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 800;
@@ -31,6 +31,7 @@ export default function NotebookPanelView({ projectId }: NotebookPanelViewProps)
   const [panelWidth, setPanelWidth] = useState(readStoredWidth);
   const [isResizing, setIsResizing] = useState(false);
   const { content, updateContent, isSaving, isLoading } = useNotebook(projectId);
+  const { isDragging, handleStyle, startDrag, consumeSuppressedClick } = useNotebookHandleDrag();
 
   const startXRef = useRef(0);
   const startWidthRef = useRef(panelWidth);
@@ -75,20 +76,26 @@ export default function NotebookPanelView({ projectId }: NotebookPanelViewProps)
 
   return (
     <>
-      {/* Floating toggle handle */}
+      {/* Floating toggle/drag handle */}
       <button
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className={`fixed z-50 ${transition} border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-l-md p-2 shadow-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer touch-none`}
+        onClick={(e) => {
+          if (consumeSuppressedClick()) { e.preventDefault(); return; }
+          setIsOpen((prev) => !prev);
+        }}
+        onMouseDown={startDrag}
+        onTouchStart={startDrag}
+        className={`fixed z-50 ${isDragging ? 'cursor-grabbing' : 'cursor-pointer'} ${isResizing ? '' : transition} border bg-white dark:bg-gray-800 ${isDragging ? 'border-blue-500 dark:border-blue-400' : 'border-gray-200 dark:border-gray-700'} rounded-l-md p-2 shadow-lg hover:bg-gray-100 dark:hover:bg-gray-700 touch-none`}
         style={{
-          top: `${HANDLE_Y_PERCENT}%`,
-          transform: 'translateY(-50%)',
+          ...handleStyle,
           right: isOpen ? panelWidth : 0,
         }}
-        aria-label={isOpen ? 'Close notebook' : 'Open notebook'}
-        title="Project notebook"
+        aria-label={isDragging ? 'Dragging' : isOpen ? 'Close notebook' : 'Open notebook'}
+        title="Project notebook — drag to reposition"
       >
-        {isOpen ? (
+        {isDragging ? (
+          <GripVertical className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+        ) : isOpen ? (
           <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
         ) : (
           <BookOpen className="h-5 w-5 text-gray-600 dark:text-gray-400" />
