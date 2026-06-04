@@ -3,6 +3,7 @@ import {
   Brain,
   ChevronDown,
   Eye,
+  Image,
   Languages,
   Maximize2,
   Minimize2,
@@ -57,6 +58,11 @@ export const VIEW_OPTION_TOGGLES: PreferenceToggleItem[] = [
     key: 'autoScrollToBottom',
     labelKey: 'quickSettings.autoScrollToBottom',
     icon: ArrowDown,
+  },
+  {
+    key: 'showImageThumbnails',
+    labelKey: 'quickSettings.showImageThumbnails',
+    icon: Image,
   },
 ];
 

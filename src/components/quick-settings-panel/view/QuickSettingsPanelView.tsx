@@ -29,6 +29,7 @@ export default function QuickSettingsPanelView() {
     showCompactSummaries: preferences.showCompactSummaries,
     autoScrollToBottom: preferences.autoScrollToBottom,
     sendByCtrlEnter: preferences.sendByCtrlEnter,
+    showImageThumbnails: preferences.showImageThumbnails,
   }), [
     preferences.autoExpandTools,
     preferences.collapseToolsByDefault,
@@ -37,6 +38,7 @@ export default function QuickSettingsPanelView() {
     preferences.showRawParameters,
     preferences.showThinking,
     preferences.showCompactSummaries,
+    preferences.showImageThumbnails,
   ]);
 
   const handlePreferenceChange = useCallback(

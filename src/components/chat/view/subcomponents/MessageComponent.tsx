@@ -36,6 +36,7 @@ type MessageComponentProps = {
   showRawParameters?: boolean;
   showThinking?: boolean;
   showCompactSummaries?: boolean;
+  showImageThumbnails?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
   onForkFromMessage?: (message: ChatMessage) => void;
@@ -50,7 +51,7 @@ type InteractiveOption = {
 type PermissionGrantState = 'idle' | 'granted' | 'error';
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, selectedProject, provider, onForkFromMessage }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, selectedProject, provider, onForkFromMessage }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -171,7 +172,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
             <div className="whitespace-pre-wrap break-words text-sm">
               {displayText}
             </div>
-            {allImages.length > 0 && (
+            {allImages.length > 0 && showImageThumbnails && (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {allImages.map((img, idx) => (
                   <img
@@ -183,6 +184,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                   />
                 ))}
               </div>
+            )}
+            {allImages.length > 0 && !showImageThumbnails && (
+              <p className="mt-1 text-xs text-blue-200/70">{allImages.length} image{allImages.length > 1 ? 's' : ''} (thumbnails off)</p>
             )}
             {lightboxSrc && (
               <ImageLightbox

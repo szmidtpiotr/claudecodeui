@@ -1,4 +1,4 @@
-import { type MutableRefObject, useCallback, useState } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useState } from 'react';
 import {
   Clipboard,
   ArrowDownToLine,
@@ -75,6 +75,24 @@ export default function TerminalShortcutsPanel({
   const { t } = useTranslation('settings');
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  // Track visual viewport to stay above the soft keyboard on Android/iOS
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!vv) return;
+    const update = () => {
+      const kbHeight = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOffset(Math.max(0, kbHeight));
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    update();
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
 
   const sendInput = useCallback(
     (data: string) => {
@@ -122,7 +140,10 @@ export default function TerminalShortcutsPanel({
   );
 
   return (
-    <div className={`pointer-events-none fixed inset-x-0 ${bottomOffset} z-20 px-2 md:hidden`}>
+    <div
+      className="pointer-events-none fixed inset-x-0 z-20 px-2 pb-1 md:hidden"
+      style={{ bottom: keyboardOffset }}
+    >
       <div className="pointer-events-auto flex items-center gap-1 overflow-x-auto rounded-lg border border-gray-700/80 bg-gray-900/95 px-1.5 py-1.5 shadow-lg backdrop-blur-sm [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <button
           type="button"

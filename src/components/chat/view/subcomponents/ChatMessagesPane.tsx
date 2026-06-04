@@ -64,6 +64,7 @@ interface ChatMessagesPaneProps {
   showRawParameters?: boolean;
   showThinking?: boolean;
   showCompactSummaries?: boolean;
+  showImageThumbnails?: boolean;
   selectedProject: Project;
   onForkFromMessage?: (message: ChatMessage) => void;
 }
@@ -118,6 +119,7 @@ export default function ChatMessagesPane({
   showRawParameters,
   showThinking,
   showCompactSummaries,
+  showImageThumbnails = true,
   selectedProject,
   onForkFromMessage,
 }: ChatMessagesPaneProps) {
@@ -277,6 +279,7 @@ export default function ChatMessagesPane({
                 showRawParameters={showRawParameters}
                 showThinking={showThinking}
                 showCompactSummaries={showCompactSummaries}
+                showImageThumbnails={showImageThumbnails}
                 selectedProject={selectedProject}
                 provider={provider}
                 onForkFromMessage={onForkFromMessage}

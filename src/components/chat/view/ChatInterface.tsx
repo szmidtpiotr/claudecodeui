@@ -48,6 +48,7 @@ function ChatInterface({
   showCompactSummaries,
   autoScrollToBottom,
   sendByCtrlEnter,
+  showImageThumbnails = true,
   externalMessageUpdate,
   newSessionTrigger,
   onNewSession,
@@ -462,6 +463,7 @@ function ChatInterface({
           showRawParameters={showRawParameters}
           showThinking={showThinking}
           showCompactSummaries={showCompactSummaries}
+          showImageThumbnails={showImageThumbnails}
           selectedProject={selectedProject}
           onForkFromMessage={handleForkFromMessage}
         />

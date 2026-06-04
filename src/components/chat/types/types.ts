@@ -124,6 +124,7 @@ export interface ChatInterfaceProps {
   showCompactSummaries?: boolean;
   autoScrollToBottom?: boolean;
   sendByCtrlEnter?: boolean;
+  showImageThumbnails?: boolean;
   externalMessageUpdate?: number;
   newSessionTrigger?: number;
   onNewSession?: (project: Project) => void;

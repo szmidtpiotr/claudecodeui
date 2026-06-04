@@ -21,31 +21,24 @@ function ImageContent({ file }: { file: CodeEditorFile }) {
     let objectUrl: string | null = null;
     const controller = new AbortController();
 
-    // Use the project-scoped endpoint when projectId is available, otherwise
-    // fall back to the workspace-wide /api/files/raw endpoint for images that
-    // live outside the currently-selected project (e.g. cross-project edits).
-    const apiPath = file.projectId
-      ? `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`
-      : `/api/files/raw?path=${encodeURIComponent(file.path)}`;
+    // Use /api/files/raw which accepts any absolute path within WORKSPACES_ROOT.
+    // This avoids cross-project 403 errors from the project-scoped endpoint.
+    const apiPath = `/api/files/raw?path=${encodeURIComponent(file.path)}`;
 
     authenticatedFetch(apiPath, { signal: controller.signal })
-      .then(r => {
-        if (!r.ok && r.status === 403 && file.projectId) {
-          // Cross-project path: retry with the workspace-wide endpoint
-          return authenticatedFetch(`/api/files/raw?path=${encodeURIComponent(file.path)}`, { signal: controller.signal });
-        }
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r;
-      })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
       .then(blob => { objectUrl = URL.createObjectURL(blob); setImageUrl(objectUrl); })
-      .catch((e) => { console.error('[ImageContent] load error:', e); setError(true); });
+      .catch((e: unknown) => {
+        if (e instanceof Error && e.name === 'AbortError') return;
+        console.error('[ImageContent] load error:', e);
+        setError(true);
+      });
 
     return () => {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file.projectId, file.path]);
+  }, [file.path]);
 
   if (error) return <p className="text-sm text-muted-foreground">Unable to load image</p>;
   if (!imageUrl) return <p className="text-sm text-muted-foreground">Loading…</p>;

@@ -8,7 +8,8 @@ export type PreferenceToggleKey =
   | 'showThinking'
   | 'showCompactSummaries'
   | 'autoScrollToBottom'
-  | 'sendByCtrlEnter';
+  | 'sendByCtrlEnter'
+  | 'showImageThumbnails';
 
 export type QuickSettingsPreferences = Record<PreferenceToggleKey, boolean>;
 
