@@ -6,10 +6,12 @@ import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
 import type { ArchivedProjectListItem, ArchivedSessionListItem, SidebarSearchMode } from '../../types/types';
+import type { UnreadSessionEntry } from '../../../../hooks/useUnreadSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
+import SidebarUnreadPanel from './SidebarUnreadPanel';
 import { getAllSessions } from '../../utils/utils';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
@@ -137,6 +139,10 @@ type SidebarContentProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
+  unreadEntries: UnreadSessionEntry[];
+  unreadCount: number;
+  onUnreadSessionClick: (entry: UnreadSessionEntry) => void;
+  onTogglePin: (sessionId: string) => void;
   updateAvailable: boolean;
   releaseInfo: ReleaseInfo | null;
   latestVersion: string | null;
@@ -173,6 +179,10 @@ export default function SidebarContent({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
+  unreadEntries,
+  unreadCount,
+  onUnreadSessionClick,
+  onTogglePin,
   updateAvailable,
   releaseInfo,
   latestVersion,
@@ -207,6 +217,7 @@ export default function SidebarContent({
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}
         onCollapseSidebar={onCollapseSidebar}
+        unreadCount={unreadCount}
         t={t}
       />
 
@@ -508,6 +519,13 @@ export default function SidebarContent({
               ))}
             </div>
           )
+        ) : searchMode === 'unread' ? (
+          <SidebarUnreadPanel
+            entries={unreadEntries}
+            onSessionClick={onUnreadSessionClick}
+            onTogglePin={onTogglePin}
+            t={t}
+          />
         ) : (
           <SidebarProjectList {...projectListProps} />
         )}

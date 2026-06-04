@@ -1,4 +1,4 @@
-import { Archive, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { Archive, Bell, Folder, FolderPlus, MessageSquare, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button, Input, Tooltip } from '../../../../shared/view/ui';
 import { IS_PLATFORM } from '../../../../constants/config';
@@ -25,6 +25,7 @@ type SidebarHeaderProps = {
   isRefreshing: boolean;
   onCreateProject: () => void;
   onCollapseSidebar: () => void;
+  unreadCount?: number;
   t: TFunction;
 };
 
@@ -44,6 +45,7 @@ export default function SidebarHeader({
   isRefreshing,
   onCreateProject,
   onCollapseSidebar,
+  unreadCount,
   t,
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || archivedSessionsCount > 0 || isArchivedSessionsLoading) && !isLoading;
@@ -51,7 +53,9 @@ export default function SidebarHeader({
     ? t('search.conversationsPlaceholder')
     : searchMode === 'archived'
       ? t('search.archivedPlaceholder', 'Search archived sessions...')
-      : t('projects.searchPlaceholder');
+      : searchMode === 'unread'
+        ? t('search.unreadPlaceholder', 'Search unread sessions...')
+        : t('projects.searchPlaceholder');
 
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
@@ -152,6 +156,23 @@ export default function SidebarHeader({
               >
                 <MessageSquare className="h-3 w-3" />
                 {t('search.modeConversations')}
+              </button>
+              <button
+                onClick={() => onSearchModeChange('unread')}
+                aria-pressed={searchMode === 'unread'}
+                className={cn(
+                  "flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  searchMode === 'unread'
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Bell className="h-3 w-3" />
+                {(unreadCount ?? 0) > 0 && (
+                  <span className="rounded-full bg-primary px-1 py-px text-[9px] font-bold text-primary-foreground leading-none">
+                    {(unreadCount ?? 0) > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
                 <button
@@ -269,6 +290,23 @@ export default function SidebarHeader({
               >
                 <MessageSquare className="h-3 w-3" />
                 {t('search.modeConversations')}
+              </button>
+              <button
+                onClick={() => onSearchModeChange('unread')}
+                aria-pressed={searchMode === 'unread'}
+                className={cn(
+                  "flex items-center justify-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+                  searchMode === 'unread'
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Bell className="h-3 w-3" />
+                {(unreadCount ?? 0) > 0 && (
+                  <span className="rounded-full bg-primary px-1 py-px text-[9px] font-bold text-primary-foreground leading-none">
+                    {(unreadCount ?? 0) > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
               <Tooltip content={t('search.archiveOnlyTooltip', 'Archive only')} position="top">
                 <button

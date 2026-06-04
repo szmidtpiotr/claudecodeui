@@ -5,11 +5,13 @@ import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 import { useVersionCheck } from '../../../hooks/useVersionCheck';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useSidebarController } from '../hooks/useSidebarController';
+import { useUnreadSessions } from '../../../hooks/useUnreadSessions';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import type { Project, LLMProvider } from '../../../types/app';
 import type { MCPServerStatus, SidebarProps } from '../types/types';
+import type { UnreadSessionEntry } from '../../../hooks/useUnreadSessions';
 
 import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
@@ -51,6 +53,7 @@ function Sidebar({
   const { setCurrentProject, mcpServerStatus } = useTaskMaster() as TaskMasterSidebarContext;
   const { tasksEnabled } = useTasksSettings();
   const paletteOps = usePaletteOps();
+  const { unreadEntries, unreadCount, markRead, togglePin } = useUnreadSessions(projects);
 
   const {
     isSidebarCollapsed,
@@ -138,6 +141,23 @@ function Sidebar({
 
   const handleProjectCreated = () => {
     void paletteOps.refreshProjects();
+  };
+
+  const handleUnreadSessionClick = (entry: UnreadSessionEntry) => {
+    markRead(entry.sessionId);
+    const project = projects.find(p => p.projectId === entry.projectId);
+    if (project) {
+      handleProjectSelect(project);
+      const sessions = getProjectSessions(project);
+      const existing = sessions.find(s => s.id === entry.sessionId);
+      if (existing) {
+        handleSessionClick(existing, project.projectId);
+      } else {
+        handleSessionClick({ id: entry.sessionId, __provider: entry.provider }, project.projectId);
+      }
+    } else {
+      handleSessionClick({ id: entry.sessionId, __provider: entry.provider }, entry.projectId);
+    }
   };
 
   const projectListProps: SidebarProjectListProps = {
@@ -289,6 +309,10 @@ function Sidebar({
             isRefreshing={isRefreshing}
             onCreateProject={() => setShowNewProject(true)}
             onCollapseSidebar={handleCollapseSidebar}
+            unreadEntries={unreadEntries}
+            unreadCount={unreadCount}
+            onUnreadSessionClick={handleUnreadSessionClick}
+            onTogglePin={togglePin}
             updateAvailable={updateAvailable}
             releaseInfo={releaseInfo}
             latestVersion={latestVersion}
