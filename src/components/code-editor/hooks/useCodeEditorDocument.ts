@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../../utils/api';
 import type { CodeEditorFile } from '../types/types';
-import { isBinaryFile } from '../utils/binaryFile';
+import { isBinaryFile, isImageFileForEditor } from '../utils/binaryFile';
 
 type UseCodeEditorDocumentParams = {
   file: CodeEditorFile;
@@ -134,6 +134,7 @@ export const useCodeEditorDocument = ({ file, projectPath }: UseCodeEditorDocume
     saveSuccess,
     saveError,
     isBinary,
+    isImage: isImageFileForEditor(file.name),
     handleSave,
     handleDownload,
   };

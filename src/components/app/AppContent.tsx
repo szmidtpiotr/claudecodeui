@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
@@ -22,6 +22,7 @@ export default function AppContent() {
 function AppContentInner() {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId?: string }>();
+  const [searchParams] = useSearchParams();
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, latestMessage, isConnected } = useWebSocket();
@@ -35,6 +36,14 @@ function AppContentInner() {
     markSessionAsProcessing,
     markSessionAsNotProcessing,
   } = useSessionProtection();
+
+  // Cold-start from push notification: SW appends ?provider=claude to the URL.
+  // Persist it to localStorage before useProjectsState reads it so the correct
+  // provider is selected when the session is matched from URL params.
+  const providerFromQuery = searchParams.get('provider');
+  if (providerFromQuery) {
+    try { localStorage.setItem('selected-provider', providerFromQuery); } catch { /* ignore */ }
+  }
 
   const {
     selectedProject,

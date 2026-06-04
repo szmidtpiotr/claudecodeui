@@ -1,25 +1,65 @@
+import { useEffect, useState } from 'react';
 import type { CodeEditorFile } from '../../types/types';
+import { authenticatedFetch } from '../../../../utils/api';
 
 type CodeEditorBinaryFileProps = {
   file: CodeEditorFile;
   isSidebar: boolean;
   isFullscreen: boolean;
+  isImage?: boolean;
   onClose: () => void;
   onToggleFullscreen: () => void;
   title: string;
   message: string;
 };
 
+function ImageContent({ file }: { file: CodeEditorFile }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!file.projectId) { setError(true); return; }
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+    const apiPath = `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`;
+
+    authenticatedFetch(apiPath, { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+      .then(blob => { objectUrl = URL.createObjectURL(blob); setImageUrl(objectUrl); })
+      .catch(() => setError(true));
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file.projectId, file.path]);
+
+  if (error) return <p className="text-sm text-muted-foreground">Unable to load image</p>;
+  if (!imageUrl) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  return (
+    <img
+      src={imageUrl}
+      alt={file.name}
+      className="max-h-full max-w-full rounded object-contain"
+    />
+  );
+}
+
 export default function CodeEditorBinaryFile({
   file,
   isSidebar,
   isFullscreen,
+  isImage = false,
   onClose,
   onToggleFullscreen,
   title,
   message,
 }: CodeEditorBinaryFileProps) {
-  const binaryContent = (
+  const binaryContent = isImage ? (
+    <div className="flex h-full w-full flex-1 items-center justify-center overflow-auto bg-muted/30 p-4">
+      <ImageContent file={file} />
+    </div>
+  ) : (
     <div className="flex h-full w-full flex-col items-center justify-center bg-background p-8 text-muted-foreground">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">

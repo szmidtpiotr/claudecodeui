@@ -102,23 +102,34 @@ self.addEventListener('notificationclick', event => {
 
   const sessionId = event.notification.data?.sessionId;
   const provider = event.notification.data?.provider || null;
-  const urlPath = sessionId ? `/session/${sessionId}` : '/';
+
+  // Build absolute URL so openWindow works correctly on all Android Chrome versions.
+  // Include provider as query param so the app can select the right provider on cold start.
+  let absoluteUrl;
+  if (sessionId) {
+    const params = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    absoluteUrl = `${self.location.origin}/session/${sessionId}${params}`;
+  } else {
+    absoluteUrl = self.location.origin + '/';
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async clientList => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin)) {
-          await client.focus();
+          // App is open: focus it and tell it to navigate via React Router (no page reload).
+          try { await client.focus(); } catch { /* focus may fail in background, continue */ }
           client.postMessage({
             type: 'notification:navigate',
             sessionId: sessionId || null,
             provider,
-            urlPath
+            urlPath: sessionId ? `/session/${sessionId}` : '/'
           });
           return;
         }
       }
-      return self.clients.openWindow(urlPath);
+      // App is closed: open at the session URL directly.
+      return self.clients.openWindow(absoluteUrl);
     })
   );
 });
