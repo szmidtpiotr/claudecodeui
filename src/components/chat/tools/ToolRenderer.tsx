@@ -1,7 +1,8 @@
-import React, { memo, useMemo, useCallback } from 'react';
+import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
 
 import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
+import { authenticatedFetch } from '../../../utils/api';
 
 import { getToolConfig } from './configs/toolConfigs';
 import { OneLineDisplay, CollapsibleDisplay, ToolDiffViewer, MarkdownContent, FileListContent, TodoListContent, TaskListContent, TextContent, QuestionAnswerContent, SubagentContainer } from './components';
@@ -33,6 +34,66 @@ interface ToolRendererProps {
     currentToolIndex: number;
     isComplete: boolean;
   };
+}
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico']);
+
+function isImagePath(filePath?: string): boolean {
+  if (!filePath) return false;
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  return IMAGE_EXTS.has(ext);
+}
+
+function ToolImagePreview({ filePath }: { filePath: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    const ctrl = new AbortController();
+    authenticatedFetch(`/api/files/raw?path=${encodeURIComponent(filePath)}`, { signal: ctrl.signal })
+      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+      .then(blob => { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); })
+      .catch(() => {});
+    return () => { ctrl.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [filePath]);
+
+  if (!url) return null;
+
+  return (
+    <>
+      <img
+        src={url}
+        alt={filePath.split('/').pop()}
+        className="mt-2 max-h-48 max-w-full cursor-zoom-in rounded-lg object-contain"
+        onClick={() => setLightbox(true)}
+      />
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setLightbox(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(false)}
+            className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+          >
+            ✕
+          </button>
+          <img
+            src={url}
+            alt={filePath.split('/').pop()}
+            draggable={false}
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={e => e.stopPropagation()}
+          />
+          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs select-none">
+            Click outside to close
+          </p>
+        </div>
+      )}
+    </>
+  );
 }
 
 function getToolCategory(toolName: string): string {
@@ -276,6 +337,11 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
 
     const badgeElement = toolStatus && toolStatus !== 'completed' ? <ToolStatusBadge status={toolStatus} /> : undefined;
 
+    // Show image preview thumbnail when the tool result is an image file
+    const imagePreview = mode === 'result' && isImagePath(contentProps.filePath)
+      ? <ToolImagePreview filePath={contentProps.filePath} />
+      : null;
+
     return (
       <CollapsibleDisplay
         toolName={toolName}
@@ -289,6 +355,7 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
         toolCategory={getToolCategory(toolName)}
       >
         {contentComponent}
+        {imagePreview}
       </CollapsibleDisplay>
     );
   }
