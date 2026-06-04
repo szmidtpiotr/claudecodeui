@@ -9,22 +9,21 @@ interface NoteResponse {
   updatedAt: number | null;
 }
 
-async function fetchNote(projectId: string): Promise<NoteResponse> {
-  const res = await api.notes.get(projectId);
+async function fetchNote(projectId: string, file: string): Promise<NoteResponse> {
+  const res = await api.notes.get(projectId, file);
   return res.json();
 }
 
-export function useNotebook(projectId: string | null) {
+export function useNotebook(projectId: string | null, filename: string) {
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const knownMtimeRef = useRef<number | null>(null);
-  // true while user has unsaved changes — poll skips content update
   const hasPendingChangesRef = useRef(false);
 
-  // Initial load
+  // Load on project or file change
   useEffect(() => {
     if (!projectId) {
       setContent('');
@@ -32,17 +31,24 @@ export function useNotebook(projectId: string | null) {
       return;
     }
 
+    // Cancel any pending save for previous file
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    hasPendingChangesRef.current = false;
+
     setIsLoading(true);
-    fetchNote(projectId)
+    fetchNote(projectId, filename)
       .then(({ content: loaded, updatedAt }) => {
         setContent(loaded);
         knownMtimeRef.current = updatedAt;
       })
       .catch(() => setContent(''))
       .finally(() => setIsLoading(false));
-  }, [projectId]);
+  }, [projectId, filename]);
 
-  // Poll for external changes (agent writing to notes.md)
+  // Poll for external changes (agent writing to file)
   useEffect(() => {
     if (!projectId) return;
 
@@ -50,18 +56,18 @@ export function useNotebook(projectId: string | null) {
       if (hasPendingChangesRef.current) return;
 
       try {
-        const { content: polled, updatedAt } = await fetchNote(projectId);
+        const { content: polled, updatedAt } = await fetchNote(projectId, filename);
         if (updatedAt !== null && updatedAt !== knownMtimeRef.current) {
           setContent(polled);
           knownMtimeRef.current = updatedAt;
         }
       } catch {
-        // network error — ignore, retry next interval
+        // network error — retry next interval
       }
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [projectId]);
+  }, [projectId, filename]);
 
   const updateContent = useCallback((text: string) => {
     setContent(text);
@@ -72,7 +78,7 @@ export function useNotebook(projectId: string | null) {
       if (!projectId) return;
       setIsSaving(true);
       try {
-        const res = await api.notes.save(projectId, text);
+        const res = await api.notes.save(projectId, text, filename);
         const data = await res.json();
         if (data.updatedAt) knownMtimeRef.current = data.updatedAt;
       } finally {
@@ -80,7 +86,7 @@ export function useNotebook(projectId: string | null) {
         hasPendingChangesRef.current = false;
       }
     }, DEBOUNCE_MS);
-  }, [projectId]);
+  }, [projectId, filename]);
 
   useEffect(() => {
     return () => {

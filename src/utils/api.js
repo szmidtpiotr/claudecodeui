@@ -257,14 +257,21 @@ export const api = {
   },
 
   notes: {
-    get: (projectId) =>
-      authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}`),
+    listFiles: (projectId) =>
+      authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}/files`),
 
-    save: (projectId, content) =>
-      authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}`, {
+    get: (projectId, file = 'notes.md') => {
+      const params = new URLSearchParams({ file });
+      return authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}?${params}`);
+    },
+
+    save: (projectId, content, file = 'notes.md') => {
+      const params = new URLSearchParams({ file });
+      return authenticatedFetch(`/api/notes/${encodeURIComponent(projectId)}?${params}`, {
         method: 'PUT',
         body: JSON.stringify({ content }),
-      }),
+      });
+    },
   },
 
   // Browse filesystem for project suggestions
