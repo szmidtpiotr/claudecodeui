@@ -496,6 +496,34 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
     }
 });
 
+// Serve raw file bytes for any absolute path within the WORKSPACES_ROOT.
+// Used by the code editor to preview image files that may live in a different
+// project than the currently selected one.
+app.get('/api/files/raw', authenticateToken, async (req, res) => {
+    try {
+        const { path: filePath } = req.query;
+        if (!filePath || !path.isAbsolute(filePath)) {
+            return res.status(400).json({ error: 'Absolute file path required' });
+        }
+        const resolved = path.resolve(filePath);
+        // Security: restrict to workspace root so only project files are served.
+        const wsRoot = path.resolve(WORKSPACES_ROOT) + path.sep;
+        if (!resolved.startsWith(wsRoot)) {
+            return res.status(403).json({ error: 'Path outside workspace root' });
+        }
+        try { await fsPromises.access(resolved); } catch {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        const mimeType = mime.lookup(resolved) || 'application/octet-stream';
+        res.setHeader('Content-Type', mimeType);
+        const fileStream = fs.createReadStream(resolved);
+        fileStream.on('error', () => res.status(500).json({ error: 'Error reading file' }));
+        fileStream.pipe(res);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Serve raw file bytes for previews and downloads.
 app.get('/api/projects/:projectId/files/content', authenticateToken, async (req, res) => {
     try {

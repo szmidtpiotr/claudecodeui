@@ -18,15 +18,28 @@ function ImageContent({ file }: { file: CodeEditorFile }) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!file.projectId) { setError(true); return; }
     let objectUrl: string | null = null;
     const controller = new AbortController();
-    const apiPath = `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`;
+
+    // Use the project-scoped endpoint when projectId is available, otherwise
+    // fall back to the workspace-wide /api/files/raw endpoint for images that
+    // live outside the currently-selected project (e.g. cross-project edits).
+    const apiPath = file.projectId
+      ? `/api/projects/${file.projectId}/files/content?path=${encodeURIComponent(file.path)}`
+      : `/api/files/raw?path=${encodeURIComponent(file.path)}`;
 
     authenticatedFetch(apiPath, { signal: controller.signal })
-      .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+      .then(r => {
+        if (!r.ok && r.status === 403 && file.projectId) {
+          // Cross-project path: retry with the workspace-wide endpoint
+          return authenticatedFetch(`/api/files/raw?path=${encodeURIComponent(file.path)}`, { signal: controller.signal });
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r;
+      })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
       .then(blob => { objectUrl = URL.createObjectURL(blob); setImageUrl(objectUrl); })
-      .catch(() => setError(true));
+      .catch((e) => { console.error('[ImageContent] load error:', e); setError(true); });
 
     return () => {
       controller.abort();
