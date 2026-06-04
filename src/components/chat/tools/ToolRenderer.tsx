@@ -3,6 +3,7 @@ import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
 import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
 import { authenticatedFetch } from '../../../utils/api';
+import ImageLightbox from '../view/subcomponents/ImageLightbox';
 
 import { getToolConfig } from './configs/toolConfigs';
 import { OneLineDisplay, CollapsibleDisplay, ToolDiffViewer, MarkdownContent, FileListContent, TodoListContent, TaskListContent, TextContent, QuestionAnswerContent, SubagentContainer } from './components';
@@ -69,28 +70,11 @@ function ToolImagePreview({ filePath }: { filePath: string }) {
         onClick={() => setLightbox(true)}
       />
       {lightbox && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-sm"
-          onClick={() => setLightbox(false)}
-        >
-          <button
-            type="button"
-            onClick={() => setLightbox(false)}
-            className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-          >
-            ✕
-          </button>
-          <img
-            src={url}
-            alt={filePath.split('/').pop()}
-            draggable={false}
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
-            onClick={e => e.stopPropagation()}
-          />
-          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs select-none">
-            Click outside to close
-          </p>
-        </div>
+        <ImageLightbox
+          src={url}
+          alt={filePath.split('/').pop()}
+          onClose={() => setLightbox(false)}
+        />
       )}
     </>
   );
