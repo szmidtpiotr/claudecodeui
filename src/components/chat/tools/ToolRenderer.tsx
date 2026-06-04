@@ -190,23 +190,33 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
     const value = displayConfig.getValue?.(parsedData) || '';
     const secondary = displayConfig.getSecondary?.(parsedData);
 
+    // Show image preview for file tools (Read, View) that reference image files.
+    // The toolInput always has the raw file path even when displayConfig hides the result.
+    const inputFilePath = parsedData?.file_path || parsedData?.path;
+    const inlineImagePreview = isImagePath(inputFilePath)
+      ? <ToolImagePreview filePath={inputFilePath} />
+      : null;
+
     return (
-      <OneLineDisplay
-        toolName={toolName}
-        toolResult={toolResult}
-        toolId={toolId}
-        icon={displayConfig.icon}
-        label={displayConfig.label}
-        value={value}
-        secondary={secondary}
-        action={displayConfig.action}
-        onAction={handleAction}
-        style={displayConfig.style}
-        wrapText={displayConfig.wrapText}
-        colorScheme={displayConfig.colorScheme}
-        resultId={mode === 'input' ? `tool-result-${toolId}` : undefined}
-        status={toolStatus !== 'completed' ? toolStatus : undefined}
-      />
+      <>
+        <OneLineDisplay
+          toolName={toolName}
+          toolResult={toolResult}
+          toolId={toolId}
+          icon={displayConfig.icon}
+          label={displayConfig.label}
+          value={value}
+          secondary={secondary}
+          action={displayConfig.action}
+          onAction={handleAction}
+          style={displayConfig.style}
+          wrapText={displayConfig.wrapText}
+          colorScheme={displayConfig.colorScheme}
+          resultId={mode === 'input' ? `tool-result-${toolId}` : undefined}
+          status={toolStatus !== 'completed' ? toolStatus : undefined}
+        />
+        {inlineImagePreview}
+      </>
     );
   }
 
@@ -337,9 +347,11 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
 
     const badgeElement = toolStatus && toolStatus !== 'completed' ? <ToolStatusBadge status={toolStatus} /> : undefined;
 
-    // Show image preview thumbnail when the tool result is an image file
-    const imagePreview = mode === 'result' && isImagePath(contentProps.filePath)
-      ? <ToolImagePreview filePath={contentProps.filePath} />
+    // Show image preview for Write/Edit tools that write image files (shown in input mode).
+    // Also covers result mode for any other tools that might reference image files.
+    const previewFilePath = contentProps?.filePath || parsedData?.file_path || parsedData?.path;
+    const imagePreview = isImagePath(previewFilePath)
+      ? <ToolImagePreview filePath={previewFilePath} />
       : null;
 
     return (
