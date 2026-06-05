@@ -122,6 +122,7 @@ export function useChatSessionState({
   const [viewHiddenCount, setViewHiddenCount] = useState(0);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollToBottomRef = useRef(autoScrollToBottom);
   const [searchTarget, setSearchTarget] = useState<{ timestamp?: string; uuid?: string; snippet?: string } | null>(null);
   const searchScrollActiveRef = useRef(false);
   const isLoadingSessionRef = useRef(false);
@@ -132,6 +133,7 @@ export function useChatSessionState({
   const pendingInitialScrollRef = useRef(true);
   const messagesOffsetRef = useRef(0);
   const scrollPositionRef = useRef({ height: 0, top: 0 });
+  const isUserScrolledUpRef = useRef(false);
   const loadAllFinishedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadedSessionKeyRef = useRef<string | null>(null);
@@ -358,7 +360,15 @@ export function useChatSessionState({
     if (!container) return;
 
     const nearBottom = isNearBottom();
-    setIsUserScrolledUp(!nearBottom);
+    const scrolledUp = !nearBottom;
+    setIsUserScrolledUp(scrolledUp);
+    isUserScrolledUpRef.current = scrolledUp;
+
+    // Track scroll position here (user-initiated) so the scroll-anchor logic
+    // below uses the position from an actual scroll event, not a random render.
+    if (!autoScrollToBottomRef.current) {
+      scrollPositionRef.current = { height: container.scrollHeight, top: container.scrollTop };
+    }
 
     if (!allMessagesLoadedRef.current) {
       const scrolledNearTop = container.scrollTop < 100;
@@ -666,12 +676,10 @@ export function useChatSessionState({
     return chatMessages.slice(-visibleMessageCount);
   }, [chatMessages, visibleMessageCount]);
 
+  // Keep autoScrollToBottomRef in sync so handleScroll can read it without a stale closure.
   useEffect(() => {
-    if (!autoScrollToBottom && scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      scrollPositionRef.current = { height: container.scrollHeight, top: container.scrollTop };
-    }
-  });
+    autoScrollToBottomRef.current = autoScrollToBottom ?? true;
+  }, [autoScrollToBottom]);
 
   useEffect(() => {
     if (!scrollContainerRef.current || chatMessages.length === 0) return;
@@ -683,12 +691,22 @@ export function useChatSessionState({
       return;
     }
 
+    // Scroll-anchor: when auto-scroll is OFF and user HAS scrolled up, adjust
+    // scrollTop to keep the viewport anchored at the same content position as
+    // new messages arrive below. Only use positions captured from real scroll
+    // events (handleScroll) to avoid random jumps from unrelated re-renders.
+    if (!isUserScrolledUpRef.current) return;
+
     const container = scrollContainerRef.current;
     const prevHeight = scrollPositionRef.current.height;
     const prevTop = scrollPositionRef.current.top;
     const newHeight = container.scrollHeight;
     const heightDiff = newHeight - prevHeight;
-    if (heightDiff > 0 && prevTop > 0) container.scrollTop = prevTop + heightDiff;
+    if (heightDiff > 0 && prevTop > 0) {
+      const nextTop = prevTop + heightDiff;
+      container.scrollTop = nextTop;
+      scrollPositionRef.current = { height: newHeight, top: nextTop };
+    }
   }, [autoScrollToBottom, chatMessages.length, isLoadingMoreMessages, isUserScrolledUp, scrollToBottom]);
 
   useEffect(() => {
