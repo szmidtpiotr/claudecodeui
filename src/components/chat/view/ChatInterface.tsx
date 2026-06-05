@@ -49,6 +49,7 @@ function ChatInterface({
   autoScrollToBottom,
   sendByCtrlEnter,
   showImageThumbnails = true,
+  collapseErrorResults = false,
   externalMessageUpdate,
   newSessionTrigger,
   onNewSession,
@@ -327,15 +328,51 @@ function ChatInterface({
     return last ? String(last.content || '') : null;
   }, [userMessages]);
 
-  const userPrompts = useMemo(
-    () =>
-      userMessages.map((m, idx) => ({
-        id: String(m.timestamp || idx),
-        text: String(m.content || ''),
-        timestamp: (m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp) ?? Date.now(),
-      })),
-    [userMessages],
-  );
+  // Persist user prompts across page refreshes (F5) via sessionStorage keyed by
+  // session id. On session change the cache resets; within a session prompts
+  // accumulate even if the message list is paginated.
+  const [cachedPrompts, setCachedPrompts] = useState<{ id: string; text: string; timestamp: string | number }[]>([]);
+
+  useEffect(() => {
+    const sid = currentSessionId || selectedSession?.id;
+    if (!sid) { setCachedPrompts([]); return; }
+    try {
+      const raw = sessionStorage.getItem(`prompts-${sid}`);
+      setCachedPrompts(raw ? JSON.parse(raw) : []);
+    } catch { setCachedPrompts([]); }
+  }, [currentSessionId, selectedSession?.id]);
+
+  useEffect(() => {
+    const sid = currentSessionId || selectedSession?.id;
+    if (!sid || userMessages.length === 0) return;
+    const fresh = userMessages.map((m, idx) => ({
+      id: String(m.timestamp || idx),
+      text: String(m.content || ''),
+      timestamp: (m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp) ?? Date.now(),
+    }));
+    setCachedPrompts(prev => {
+      const ids = new Set(prev.map(p => p.id));
+      const merged = [...prev, ...fresh.filter(p => !ids.has(p.id))];
+      try { sessionStorage.setItem(`prompts-${sid}`, JSON.stringify(merged)); } catch { /* quota */ }
+      return merged;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userMessages]);
+
+  const userPrompts = useMemo(() => {
+    const fromMessages = userMessages.map((m, idx) => ({
+      id: String(m.timestamp || idx),
+      text: String(m.content || ''),
+      timestamp: (m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp) ?? Date.now(),
+    }));
+    const ids = new Set(fromMessages.map(p => p.id));
+    const olderCached = cachedPrompts.filter(p => !ids.has(p.id));
+    return [...olderCached, ...fromMessages].sort((a, b) => {
+      const ta = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : Number(a.timestamp);
+      const tb = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : Number(b.timestamp);
+      return ta - tb;
+    });
+  }, [userMessages, cachedPrompts]);
 
   const handleJumpToPrompt = useCallback((id: string) => {
     const container = scrollContainerRef.current;
@@ -464,6 +501,7 @@ function ChatInterface({
           showThinking={showThinking}
           showCompactSummaries={showCompactSummaries}
           showImageThumbnails={showImageThumbnails}
+          collapseErrorResults={collapseErrorResults}
           selectedProject={selectedProject}
           onForkFromMessage={handleForkFromMessage}
         />

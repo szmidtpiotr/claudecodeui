@@ -10,6 +10,7 @@ type UiPreferences = {
   sendByCtrlEnter: boolean;
   sidebarVisible: boolean;
   showImageThumbnails: boolean;
+  collapseErrorResults: boolean;
 };
 
 type UiPreferenceKey = keyof UiPreferences;
@@ -45,6 +46,7 @@ const DEFAULTS: UiPreferences = {
   sendByCtrlEnter: false,
   sidebarVisible: true,
   showImageThumbnails: true,
+  collapseErrorResults: false,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];

@@ -37,6 +37,7 @@ type MessageComponentProps = {
   showThinking?: boolean;
   showCompactSummaries?: boolean;
   showImageThumbnails?: boolean;
+  collapseErrorResults?: boolean;
   selectedProject?: Project | null;
   provider: Provider | string;
   onForkFromMessage?: (message: ChatMessage) => void;
@@ -51,7 +52,7 @@ type InteractiveOption = {
 type PermissionGrantState = 'idle' | 'granted' | 'error';
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, selectedProject, provider, onForkFromMessage }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, collapseErrorResults = false, selectedProject, provider, onForkFromMessage }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -64,6 +65,10 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
   const [lightboxSrc, setLightboxSrc] = useState<{ src: string; alt: string } | null>(null);
   const permissionSuggestion = getClaudePermissionSuggestion(message, provider);
   const [permissionGrantState, setPermissionGrantState] = useState<PermissionGrantState>('idle');
+  // Error results start collapsed when collapseErrorResults is on AND there's no permission action needed
+  const [errorExpanded, setErrorExpanded] = useState<boolean>(
+    () => !collapseErrorResults || Boolean(permissionSuggestion)
+  );
   const userCopyContent = String(message.content || '');
   const formattedMessageContent = useMemo(
     () => formatUsageLimitText(String(message.content || '')),
@@ -320,18 +325,31 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                 {/* Tool Result Section */}
                 {!isToolCollapsed && message.toolResult && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
                   message.toolResult.isError ? (
-                    // Error results - red error box with content
+                    // Error results - collapsible red box (auto-collapsed when collapseErrorResults is on)
                     <div
                       id={`tool-result-${message.toolId}`}
-                      className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 p-3 dark:border-red-800/40 dark:bg-red-950/10"
+                      className="relative mt-2 scroll-mt-4 rounded border border-red-200/60 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/10"
                     >
-                      <div className="relative mb-2 flex items-center gap-1.5">
-                        <svg className="h-4 w-4 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      {/* Header — always visible, clickable to expand/collapse */}
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-1.5 px-3 py-2 text-left"
+                        onClick={() => setErrorExpanded(v => !v)}
+                        aria-expanded={errorExpanded}
+                      >
+                        <svg className="h-4 w-4 shrink-0 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
-                        <span className="text-xs font-medium text-red-700 dark:text-red-300">{t('messageTypes.error')}</span>
-                      </div>
-                      <div className="relative text-sm text-red-900 dark:text-red-100">
+                        <span className="flex-1 text-xs font-medium text-red-700 dark:text-red-300">{t('messageTypes.error')}</span>
+                        <svg
+                          className={`h-3 w-3 shrink-0 text-red-400 transition-transform duration-150 ${errorExpanded ? '' : '-rotate-90'}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {errorExpanded && (
+                      <div className="relative px-3 pb-3 text-sm text-red-900 dark:text-red-100">
                         <Markdown projectId={selectedProject?.projectId} className="prose prose-sm prose-red max-w-none dark:prose-invert">
                           {String(message.toolResult.content || '')}
                         </Markdown>
@@ -385,6 +403,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                           </div>
                         )}
                       </div>
+                      )}
                     </div>
                   ) : (
                     // Non-error results - route through ToolRenderer (single source of truth)

@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   ArrowDown,
   Brain,
   ChevronDown,
@@ -35,6 +36,11 @@ export const TOOL_DISPLAY_TOGGLES: PreferenceToggleItem[] = [
     key: 'collapseToolsByDefault',
     labelKey: 'quickSettings.collapseToolsByDefault',
     icon: ChevronDown,
+  },
+  {
+    key: 'collapseErrorResults',
+    labelKey: 'quickSettings.collapseErrorResults',
+    icon: AlertCircle,
   },
   {
     key: 'showRawParameters',

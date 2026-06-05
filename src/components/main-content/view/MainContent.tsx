@@ -56,7 +56,7 @@ function MainContent({
   onNewSession,
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
-  const { autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, autoScrollToBottom, sendByCtrlEnter, showImageThumbnails } = preferences;
+  const { autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, autoScrollToBottom, sendByCtrlEnter, showImageThumbnails, collapseErrorResults } = preferences;
 
   const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
   const { tasksEnabled, isTaskMasterInstalled, githubIssuesEnabled } = useTasksSettings() as TasksSettingsContextValue;
@@ -154,6 +154,7 @@ function MainContent({
                 autoScrollToBottom={autoScrollToBottom}
                 sendByCtrlEnter={sendByCtrlEnter}
                 showImageThumbnails={showImageThumbnails}
+                collapseErrorResults={collapseErrorResults}
                 externalMessageUpdate={externalMessageUpdate}
                 newSessionTrigger={newSessionTrigger}
                 onNewSession={onNewSession}
