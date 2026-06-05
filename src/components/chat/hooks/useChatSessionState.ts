@@ -702,7 +702,10 @@ export function useChatSessionState({
     const prevTop = scrollPositionRef.current.top;
     const newHeight = container.scrollHeight;
     const heightDiff = newHeight - prevHeight;
-    if (heightDiff > 0 && prevTop > 0) {
+    // Only jump if: (1) content grew, (2) user saved a real position, (3) user is far from bottom (> 150px).
+    // This prevents micro-jumps when near bottom and messages stream in.
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (heightDiff > 0 && prevTop > 0 && distanceFromBottom > 150) {
       const nextTop = prevTop + heightDiff;
       container.scrollTop = nextTop;
       scrollPositionRef.current = { height: newHeight, top: nextTop };
