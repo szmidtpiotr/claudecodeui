@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ChangeEvent,
@@ -117,7 +118,7 @@ interface ChatComposerProps {
   dictationShortcutLabel?: string;
 }
 
-export default function ChatComposer({
+const ChatComposer = memo(function ChatComposer({
   pendingPermissionRequests,
   handlePermissionDecision,
   handleGrantToolPermission,
@@ -515,4 +516,6 @@ export default function ChatComposer({
       </div>
     </div>
   );
-}
+});
+
+export default ChatComposer;

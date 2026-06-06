@@ -416,6 +416,42 @@ function ChatInterface({
     setTimeout(() => textareaRef.current?.focus(), 100);
   }, [selectedProject, onNewSession, setInput, textareaRef]);
 
+  const handleRemoveImage = useCallback((index: number) => {
+    setAttachedImages((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
+  }, [setAttachedImages]);
+
+  const handleModelChange = useCallback((model: string) => {
+    if (provider === 'cursor') { setCursorModel(model); localStorage.setItem('cursor-model', model); }
+    else if (provider === 'codex') { setCodexModel(model); localStorage.setItem('codex-model', model); }
+    else if (provider === 'gemini') { setGeminiModel(model); localStorage.setItem('gemini-model', model); }
+    else if (provider === 'opencode') { setOpenCodeModel(model); localStorage.setItem('opencode-model', model); }
+    else if (provider === 'azure') { setAzureModel(model); localStorage.setItem('azure-model', model); }
+    else { setClaudeModel(model); localStorage.setItem('claude-model', model); }
+  }, [provider, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel, setClaudeModel]);
+
+  const handleTogglePromptNav = useCallback(() => setShowPromptNav((v) => !v), []);
+
+  const handlePromptNavClose = useCallback(() => setShowPromptNav(false), []);
+
+  const EMPTY_COMMANDS = useMemo(() => [], []);
+  const composerFrequentCommands = commandQuery ? EMPTY_COMMANDS : frequentCommands;
+
+  const composerCurrentModel = provider === 'cursor' ? cursorModel
+    : provider === 'codex' ? codexModel
+    : provider === 'gemini' ? geminiModel
+    : provider === 'opencode' ? opencodeModel
+    : provider === 'azure' ? azureModel
+    : claudeModel;
+
+  const composerPlaceholder = useMemo(() => t('input.placeholder', {
+    provider:
+      provider === 'cursor' ? t('messageTypes.cursor')
+      : provider === 'codex' ? t('messageTypes.codex')
+      : provider === 'gemini' ? t('messageTypes.gemini')
+      : provider === 'opencode' ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+      : t('messageTypes.claude'),
+  }), [t, provider]);
+
   if (!selectedProject) {
     const selectedProviderLabel =
       provider === 'cursor'
@@ -530,11 +566,7 @@ function ChatInterface({
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
           attachedImages={attachedImages}
-          onRemoveImage={(index) =>
-            setAttachedImages((previous) =>
-              previous.filter((_, currentIndex) => currentIndex !== index),
-            )
-          }
+          onRemoveImage={handleRemoveImage}
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
           showFileDropdown={showFileDropdown}
@@ -546,7 +578,7 @@ function ChatInterface({
           onCommandSelect={handleCommandSelect}
           onCloseCommandMenu={resetCommandMenuState}
           isCommandMenuOpen={showCommandMenu}
-          frequentCommands={commandQuery ? [] : frequentCommands}
+          frequentCommands={composerFrequentCommands}
           getRootProps={getRootProps as (...args: unknown[]) => Record<string, unknown>}
           getInputProps={getInputProps as (...args: unknown[]) => Record<string, unknown>}
           openImagePicker={openImagePicker}
@@ -561,36 +593,16 @@ function ChatInterface({
           onTextareaScrollSync={syncInputOverlayScroll}
           onTextareaInput={handleTextareaInput}
           onInputFocusChange={handleInputFocusChange}
-          placeholder={t('input.placeholder', {
-            provider:
-              provider === 'cursor'
-                ? t('messageTypes.cursor')
-                : provider === 'codex'
-                  ? t('messageTypes.codex')
-                  : provider === 'gemini'
-                    ? t('messageTypes.gemini')
-                    : provider === 'opencode'
-                      ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-                      : t('messageTypes.claude'),
-          })}
+          placeholder={composerPlaceholder}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}
           onOpenSettings={onShowSettings}
-          currentModel={provider === 'cursor' ? cursorModel : provider === 'codex' ? codexModel : provider === 'gemini' ? geminiModel : provider === 'opencode' ? opencodeModel : provider === 'azure' ? azureModel : claudeModel}
-          onModelChange={(model) => {
-            // Save to localStorage immediately so the catalog-sync effect
-            // doesn't read the old stored value and override this selection.
-            if (provider === 'cursor') { setCursorModel(model); localStorage.setItem('cursor-model', model); }
-            else if (provider === 'codex') { setCodexModel(model); localStorage.setItem('codex-model', model); }
-            else if (provider === 'gemini') { setGeminiModel(model); localStorage.setItem('gemini-model', model); }
-            else if (provider === 'opencode') { setOpenCodeModel(model); localStorage.setItem('opencode-model', model); }
-            else if (provider === 'azure') { setAzureModel(model); localStorage.setItem('azure-model', model); }
-            else { setClaudeModel(model); localStorage.setItem('claude-model', model); }
-          }}
+          currentModel={composerCurrentModel}
+          onModelChange={handleModelChange}
           modelCatalogOptions={providerModelCatalog[provider as keyof typeof providerModelCatalog]?.OPTIONS}
           queuedPrompt={queuedPrompt}
           onClearQueuedPrompt={clearQueuedPrompt}
-          onTogglePromptNav={() => setShowPromptNav((v) => !v)}
+          onTogglePromptNav={handleTogglePromptNav}
           dictationState={dictationState}
           dictationError={dictationError}
           onToggleDictation={toggleRecording}
@@ -600,7 +612,7 @@ function ChatInterface({
 
       <PromptNavPanel
         isOpen={showPromptNav}
-        onClose={() => setShowPromptNav(false)}
+        onClose={handlePromptNavClose}
         prompts={userPrompts}
         onJumpTo={handleJumpToPrompt}
       />
