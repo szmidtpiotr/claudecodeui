@@ -91,6 +91,9 @@ export interface SessionSlot {
   /** @internal Cache-invalidation refs for computeMerged */
   _lastServerRef: NormalizedMessage[];
   _lastRealtimeRef: NormalizedMessage[];
+  /** @internal Cached Set of server message IDs — rebuilt only when serverMessages changes */
+  _serverIdCache: Set<string> | null;
+  _serverUserTextCache: Set<string> | null;
   status: SessionStatus;
   fetchedAt: number;
   total: number;
@@ -108,6 +111,8 @@ function createEmptySlot(): SessionSlot {
     merged: EMPTY,
     _lastServerRef: EMPTY,
     _lastRealtimeRef: EMPTY,
+    _serverIdCache: null,
+    _serverUserTextCache: null,
     status: 'idle',
     fetchedAt: 0,
     total: 0,
@@ -165,13 +170,21 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
   return out;
 }
 
-function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
+function computeMerged(slot: SessionSlot): NormalizedMessage[] {
+  const { serverMessages: server, realtimeMessages: realtime } = slot;
   if (realtime.length === 0) return server;
   if (server.length === 0) return dedupeAdjacentAssistantEchoes(realtime);
-  const serverIds = new Set(server.map(m => m.id));
-  const serverUserTexts = new Set(
-    server.map(userTextFingerprint).filter((t): t is string => t !== null),
-  );
+
+  // Rebuild server ID caches only when serverMessages reference changed.
+  if (slot._serverIdCache === null) {
+    slot._serverIdCache = new Set(server.map(m => m.id));
+    slot._serverUserTextCache = new Set(
+      server.map(userTextFingerprint).filter((t): t is string => t !== null),
+    );
+  }
+  const serverIds = slot._serverIdCache;
+  const serverUserTexts = slot._serverUserTextCache!;
+
   const extra = realtime.filter((m) => {
     if (serverIds.has(m.id)) return false;
     // Optimistic user rows use `local_*` ids; once the same text exists on the
@@ -248,9 +261,14 @@ function recomputeMergedIfNeeded(slot: SessionSlot): boolean {
   if (slot.serverMessages === slot._lastServerRef && slot.realtimeMessages === slot._lastRealtimeRef) {
     return false;
   }
+  // Invalidate server ID cache when serverMessages reference changes.
+  if (slot.serverMessages !== slot._lastServerRef) {
+    slot._serverIdCache = null;
+    slot._serverUserTextCache = null;
+  }
   slot._lastServerRef = slot.serverMessages;
   slot._lastRealtimeRef = slot.realtimeMessages;
-  slot.merged = computeMerged(slot.serverMessages, slot.realtimeMessages);
+  slot.merged = computeMerged(slot);
   return true;
 }
 
