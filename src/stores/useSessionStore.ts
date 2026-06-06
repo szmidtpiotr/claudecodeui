@@ -7,7 +7,7 @@
  * No localStorage for messages. Backend JSONL is the source of truth.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useMemo, useRef, useState } from 'react';
 
 import { authenticatedFetch } from '../utils/api';
 import type { LLMProvider } from '../types/app';
@@ -297,7 +297,9 @@ export function useSessionStore() {
     }
 
     if (resolvedSessionId === activeSessionIdRef.current) {
-      setTick(n => n + 1);
+      // Use startTransition so streaming updates are low-priority — the browser
+      // processes user input events (typing) before re-rendering the message list.
+      startTransition(() => setTick(n => n + 1));
     }
   }, []);
 

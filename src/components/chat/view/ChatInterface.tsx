@@ -433,6 +433,8 @@ function ChatInterface({
 
   const handlePromptNavClose = useCallback(() => setShowPromptNav(false), []);
 
+  const handleSetProvider = useCallback((nextProvider: Provider) => setProvider(nextProvider), [setProvider]);
+
   const EMPTY_COMMANDS = useMemo(() => [], []);
   const composerFrequentCommands = commandQuery ? EMPTY_COMMANDS : frequentCommands;
 
@@ -495,7 +497,7 @@ function ChatInterface({
           selectedSession={selectedSession}
           currentSessionId={currentSessionId}
           provider={provider}
-          setProvider={(nextProvider) => setProvider(nextProvider as Provider)}
+          setProvider={handleSetProvider}
           textareaRef={textareaRef}
           claudeModel={claudeModel}
           setClaudeModel={setClaudeModel}

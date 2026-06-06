@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCallback, useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -70,7 +71,7 @@ interface ChatMessagesPaneProps {
   onForkFromMessage?: (message: ChatMessage) => void;
 }
 
-export default function ChatMessagesPane({
+const ChatMessagesPane = memo(function ChatMessagesPane({
   scrollContainerRef,
   onWheel,
   onTouchMove,
@@ -293,5 +294,6 @@ export default function ChatMessagesPane({
       )}
     </div>
   );
-}
+});
 
+export default ChatMessagesPane;
