@@ -6,6 +6,7 @@ import { handleChatConnection } from '@/modules/websocket/services/chat-websocke
 import { verifyWebSocketClient } from '@/modules/websocket/services/websocket-auth.service.js';
 import { handlePluginWsProxy } from '@/modules/websocket/services/plugin-websocket-proxy.service.js';
 import { handleShellConnection } from '@/modules/websocket/services/shell-websocket.service.js';
+import { handleVoiceWsProxy } from '@/modules/websocket/services/voice-websocket-proxy.service.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 
 type WebSocketServerDependencies = {
@@ -64,6 +65,12 @@ export function createWebSocketServer(
 
     if (pathname.startsWith('/plugin-ws/')) {
       handlePluginWsProxy(ws, pathname, dependencies.getPluginPort);
+      return;
+    }
+
+    if (pathname === '/voice-stt') {
+      const searchParams = new URL(url, 'http://localhost').searchParams;
+      handleVoiceWsProxy(ws, searchParams);
       return;
     }
 
