@@ -408,13 +408,29 @@ function ChatInterface({
     return () => document.removeEventListener('keydown', handleDictationShortcut, { capture: true });
   }, [toggleRecording]);
 
-  const handleForkFromMessage = useCallback((message: ChatMessage) => {
+  const handleForkFromMessage = useCallback((agentMessage: ChatMessage) => {
     if (!selectedProject) return;
-    const forkContent = String(message.content || '');
+    const agentContent = String(agentMessage.content || '').trim();
+
+    // Find the nearest user message before this agent response
+    const agentIdx = chatMessages.indexOf(agentMessage);
+    let userContent = '';
+    for (let i = agentIdx - 1; i >= 0; i--) {
+      if (chatMessages[i].type === 'user') {
+        userContent = String(chatMessages[i].content || '').trim();
+        break;
+      }
+    }
+
+    // Build fork context: user question + agent response, no extra padding
+    const forkContent = userContent
+      ? `<context>\nUser: ${userContent}\n\nAssistant: ${agentContent}\n</context>\n\n`
+      : `<context>\nAssistant: ${agentContent}\n</context>\n\n`;
+
     onNewSession?.(selectedProject);
     setInput(forkContent);
     setTimeout(() => textareaRef.current?.focus(), 100);
-  }, [selectedProject, onNewSession, setInput, textareaRef]);
+  }, [selectedProject, onNewSession, setInput, textareaRef, chatMessages]);
 
   const handleRemoveImage = useCallback((index: number) => {
     setAttachedImages((previous) => previous.filter((_, currentIndex) => currentIndex !== index));

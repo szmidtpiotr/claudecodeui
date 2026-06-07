@@ -201,17 +201,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
               />
             )}
             <div className="mt-1 flex items-center justify-end gap-1 text-xs text-blue-100">
-              {onForkFromMessage && (
-                <button
-                  type="button"
-                  onClick={() => onForkFromMessage(message)}
-                  className="p-1 rounded hover:bg-blue-500/30 transition-opacity"
-                  title="Fork conversation from here"
-                  aria-label="Fork conversation"
-                >
-                  <GitFork className="h-3 w-3" />
-                </button>
-              )}
               {shouldShowUserCopyControl && (
                 <MessageCopyControl content={userCopyContent} messageType="user" />
               )}
@@ -582,6 +571,18 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
               <div className="mt-1 flex w-full items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
                 {shouldShowAssistantCopyControl && (
                   <MessageCopyControl content={assistantCopyContent} messageType="assistant" />
+                )}
+                {onForkFromMessage && !message.isToolUse && !message.isThinking && !message.isStreaming && String(message.content || '').trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onForkFromMessage(message)}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors"
+                    title="Fork: open new thread with this exchange as context"
+                    aria-label="Fork conversation from this response"
+                  >
+                    <GitFork className="h-3 w-3" />
+                    <span>Fork</span>
+                  </button>
                 )}
                 <span>{formattedTime}</span>
               </div>
