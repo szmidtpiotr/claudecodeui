@@ -4,6 +4,7 @@ import fsSync from 'node:fs';
 import crossSpawn from 'cross-spawn';
 import Database from 'better-sqlite3';
 
+import { registerSudoRun, unregisterSudoRun } from './modules/sudo-askpass/sudo-askpass.service.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
@@ -221,6 +222,9 @@ async function spawnOpenCode(command, options = {}, ws) {
         args.push(command.trim());
       }
 
+      const sudoRun = registerSudoRun(ws, sessionId, 'opencode');
+      Object.assign(spawnEnv, sudoRun.env);
+
       opencodeProcess = spawnFunction('opencode', args, {
         cwd: workingDir,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -256,6 +260,7 @@ async function spawnOpenCode(command, options = {}, ws) {
       });
 
       opencodeProcess.on('close', async (code) => {
+        unregisterSudoRun(sudoRun.token);
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeOpenCodeProcesses.delete(finalSessionId);
         activeOpenCodeProcesses.delete(processKey);
@@ -307,6 +312,7 @@ async function spawnOpenCode(command, options = {}, ws) {
       });
 
       opencodeProcess.on('error', async (error) => {
+        unregisterSudoRun(sudoRun.token);
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeOpenCodeProcesses.delete(finalSessionId);
         activeOpenCodeProcesses.delete(processKey);
