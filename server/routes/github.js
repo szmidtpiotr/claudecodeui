@@ -125,7 +125,10 @@ router.post('/webhook/:projectId', async (req, res) => {
         // Verify webhook signature if secret configured
         if (config.webhookSecret) {
             const sig = req.headers['x-hub-signature-256'];
-            const rawBody = req.rawBody || JSON.stringify(req.body);
+            const rawBody = req.rawBody;
+            if (!rawBody) {
+                return res.status(400).json({ error: 'Missing raw body for signature verification' });
+            }
             if (!ghService.verifyWebhookSignature(config.webhookSecret, rawBody, sig)) {
                 return res.status(401).json({ error: 'Invalid webhook signature' });
             }
@@ -180,6 +183,22 @@ router.get('/issues/:projectId/:issueNumber/comments', async (req, res) => {
 
         const comments = await issuesService.fetchComments(projectPath, req.params.issueNumber);
         res.json({ comments });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/github/issues/:projectId/:issueNumber/comments — add comment
+router.post('/issues/:projectId/:issueNumber/comments', async (req, res) => {
+    try {
+        const projectPath = await resolveProjectPathFromId(req.params.projectId);
+        if (!projectPath) return res.status(404).json({ error: 'Project not found' });
+
+        const { body } = req.body;
+        if (!body?.trim()) return res.status(400).json({ error: 'Comment body required' });
+
+        const comment = await issuesService.addComment(projectPath, req.params.issueNumber, body);
+        res.json({ ok: true, comment });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
