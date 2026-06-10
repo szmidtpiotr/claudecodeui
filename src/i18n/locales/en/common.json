@@ -22,8 +22,7 @@
     "shell": "Shell",
     "files": "Files",
     "git": "Source Control",
-    "tasks": "Tasks",
-    "githubIssues": "GitHub Issues"
+    "tasks": "Tasks"
   },
   "status": {
     "loading": "Loading...",

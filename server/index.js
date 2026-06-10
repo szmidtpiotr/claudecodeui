@@ -71,7 +71,6 @@ import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import cursorRoutes from './routes/cursor.js';
 import taskmasterRoutes from './routes/taskmaster.js';
-import githubRoutes from './routes/github.js';
 import mcpUtilsRoutes from './routes/mcp-utils.js';
 import commandsRoutes from './routes/commands.js';
 import settingsRoutes from './routes/settings.js';
@@ -84,6 +83,7 @@ import providerRoutes from './modules/providers/provider.routes.js';
 import usageRoutes from './routes/usage.js';
 import notesRoutes from './routes/notes.js';
 import azureConfigRoutes from './routes/azure-config.js'; // Azure credentials for Codex/OpenCode integration
+import voiceRoutes from './routes/voice.js';
 import { startEnabledPluginServers, stopAllPlugins, getPluginPort } from './utils/plugin-process-manager.js';
 import { initializeDatabase, projectsDb, sessionsDb } from './modules/database/index.js';
 import { configureWebPush } from './services/vapid-keys.js';
@@ -196,12 +196,6 @@ app.use('/api/cursor', authenticateToken, cursorRoutes);
 // TaskMaster API Routes (protected)
 app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
 
-// GitHub Sync Routes — webhook is HMAC-verified (no JWT), all other routes require auth
-app.use('/api/github', (req, res, next) => {
-    if (req.path.startsWith('/webhook/')) return next();
-    return authenticateToken(req, res, next);
-}, githubRoutes);
-
 // MCP utilities
 app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
 
@@ -230,6 +224,9 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/usage', authenticateToken, usageRoutes);
 app.use('/api/notes', authenticateToken, notesRoutes);
 app.use('/api/azure', authenticateToken, azureConfigRoutes);
+
+// Voice Service Proxy Routes (protected)
+app.use('/api/voice', authenticateToken, voiceRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));

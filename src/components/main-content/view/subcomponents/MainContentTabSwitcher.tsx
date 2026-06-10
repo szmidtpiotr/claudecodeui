@@ -1,4 +1,4 @@
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, Github, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, type LucideIcon } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip, PillBar, Pill } from '../../../../shared/view/ui';
@@ -10,7 +10,6 @@ type MainContentTabSwitcherProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
   shouldShowTasksTab: boolean;
-  shouldShowGithubIssuesTab: boolean;
 };
 
 type BuiltInTab = {
@@ -44,25 +43,16 @@ const TASKS_TAB: BuiltInTab = {
   icon: ClipboardCheck,
 };
 
-const GITHUB_ISSUES_TAB: BuiltInTab = {
-  kind: 'builtin',
-  id: 'github-issues',
-  labelKey: 'tabs.githubIssues',
-  icon: Github,
-};
-
 export default function MainContentTabSwitcher({
   activeTab,
   setActiveTab,
   shouldShowTasksTab,
-  shouldShowGithubIssuesTab,
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
 
   let builtInTabs: BuiltInTab[] = [...BASE_TABS];
   if (shouldShowTasksTab) builtInTabs = [...builtInTabs, TASKS_TAB];
-  if (shouldShowGithubIssuesTab) builtInTabs = [...builtInTabs, GITHUB_ISSUES_TAB];
 
   const pluginTabs: PluginTab[] = plugins
     .filter((p) => p.enabled)
