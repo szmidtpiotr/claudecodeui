@@ -44,6 +44,10 @@ export async function listIssueComments(token, owner, repo, issueNumber) {
     return githubFetch(token, 'GET', `/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`);
 }
 
+export async function createIssueComment(token, owner, repo, issueNumber, body) {
+    return githubFetch(token, 'POST', `/repos/${owner}/${repo}/issues/${issueNumber}/comments`, { body });
+}
+
 export async function testConnection(token, owner, repo) {
     return githubFetch(token, 'GET', `/repos/${owner}/${repo}`);
 }

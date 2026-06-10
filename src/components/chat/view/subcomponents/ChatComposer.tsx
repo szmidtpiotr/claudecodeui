@@ -3,13 +3,11 @@ import { useTranslation } from 'react-i18next';
 import type {
   ChangeEvent,
   ClipboardEvent,
-  Dispatch,
   FormEvent,
   KeyboardEvent,
   MouseEvent,
   ReactNode,
   RefObject,
-  SetStateAction,
   TouchEvent,
 } from 'react';
 import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, ClockIcon, ListIcon, MicIcon, MicOffIcon, LoaderIcon } from 'lucide-react';
@@ -18,7 +16,7 @@ import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
-import ThinkingModeSelector from './ThinkingModeSelector';
+import { EffortSelector, type EffortLevel } from './EffortSelector';
 import ModelSelector from './ModelSelector';
 import ContextUsagePill from './ContextUsagePill';
 import TokenUsageSummary from './TokenUsageSummary';
@@ -59,11 +57,12 @@ interface ChatComposerProps {
   messages: ChatMessage[];
   isLoading: boolean;
   onAbortSession: () => void;
+  escPendingAbort?: boolean;
   provider: Provider | string;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
-  thinkingMode: string;
-  setThinkingMode: Dispatch<SetStateAction<string>>;
+  effortLevel: EffortLevel;
+  setEffortLevel: (level: EffortLevel) => void;
   tokenBudget: Record<string, unknown> | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
@@ -126,11 +125,12 @@ const ChatComposer = memo(function ChatComposer({
   messages,
   isLoading,
   onAbortSession,
+  escPendingAbort,
   provider,
   permissionMode,
   onModeSwitch,
-  thinkingMode,
-  setThinkingMode,
+  effortLevel,
+  setEffortLevel,
   tokenBudget,
   slashCommandsCount,
   onToggleCommandMenu,
@@ -210,6 +210,7 @@ const ChatComposer = memo(function ChatComposer({
           isLoading={isLoading}
           onAbort={onAbortSession}
           provider={provider}
+          escPendingAbort={escPendingAbort}
         />
       )}
 
@@ -453,7 +454,7 @@ const ChatComposer = memo(function ChatComposer({
             </button>
 
             {provider === 'claude' && (
-              <ThinkingModeSelector selectedMode={thinkingMode} onModeChange={setThinkingMode} onClose={() => {}} className="" />
+              <EffortSelector effortLevel={effortLevel} onEffortChange={setEffortLevel} />
             )}
 
             <ModelSelector

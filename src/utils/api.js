@@ -243,6 +243,12 @@ export const api = {
     getComments: (projectId, issueNumber) =>
       authenticatedFetch(`/api/github/issues/${projectId}/${issueNumber}/comments`),
 
+    addComment: (projectId, issueNumber, body) =>
+      authenticatedFetch(`/api/github/issues/${projectId}/${issueNumber}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      }),
+
     updateIssue: (projectId, issueNumber, patch) =>
       authenticatedFetch(`/api/github/issues/${projectId}/${issueNumber}`, {
         method: 'PATCH',

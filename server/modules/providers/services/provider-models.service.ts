@@ -15,7 +15,7 @@ import type {
 } from '@/shared/types.js';
 import { readProviderSessionActiveModelChange } from '@/shared/utils.js';
 
-export const PROVIDER_MODELS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+export const PROVIDER_MODELS_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const PROVIDER_MODELS_CACHE_VERSION = 1;
 
 type ProviderModelsServiceDependencies = {

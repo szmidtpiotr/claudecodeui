@@ -160,8 +160,8 @@ function ChatInterface({
     textareaRef,
     inputHighlightRef,
     isTextareaExpanded,
-    thinkingMode,
-    setThinkingMode,
+    effortLevel,
+    setEffortLevel,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,
@@ -310,8 +310,18 @@ function ChatInterface({
     clearSudoRequest();
   }, [clearSudoRequest, pendingSudoRequest, sendMessage]);
 
+  const [escPendingAbort, setEscPendingAbort] = useState(false);
+  const escPendingAbortRef = useRef(false);
+  const escPendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!isLoading || !canAbortSession) {
+      if (escPendingTimeoutRef.current) {
+        clearTimeout(escPendingTimeoutRef.current);
+        escPendingTimeoutRef.current = null;
+      }
+      escPendingAbortRef.current = false;
+      setEscPendingAbort(false);
       return;
     }
 
@@ -321,7 +331,24 @@ function ChatInterface({
       }
 
       event.preventDefault();
-      handleAbortSession();
+
+      if (escPendingAbortRef.current) {
+        if (escPendingTimeoutRef.current) {
+          clearTimeout(escPendingTimeoutRef.current);
+          escPendingTimeoutRef.current = null;
+        }
+        escPendingAbortRef.current = false;
+        setEscPendingAbort(false);
+        handleAbortSession();
+      } else {
+        escPendingAbortRef.current = true;
+        setEscPendingAbort(true);
+        escPendingTimeoutRef.current = setTimeout(() => {
+          escPendingAbortRef.current = false;
+          setEscPendingAbort(false);
+          escPendingTimeoutRef.current = null;
+        }, 2000);
+      }
     };
 
     document.addEventListener('keydown', handleGlobalEscape, { capture: true });
@@ -591,11 +618,12 @@ function ChatInterface({
           messages={chatMessages}
           isLoading={isLoading}
           onAbortSession={handleAbortSession}
+          escPendingAbort={escPendingAbort}
           provider={provider}
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
-          thinkingMode={thinkingMode}
-          setThinkingMode={setThinkingMode}
+          effortLevel={effortLevel}
+          setEffortLevel={setEffortLevel}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={handleToggleCommandMenu}

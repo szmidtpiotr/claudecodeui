@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Loader2, X } from 'lucide-react';
+import { ExternalLink, Loader2, MessageSquarePlus, Send, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { api } from '../../utils/api';
 import type { GithubColumn, GithubComment, GithubIssue, IssuePriority } from './types';
@@ -87,6 +87,9 @@ export default function GithubIssueModal({ issue, isOpen, projectId, columns, on
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [updatingPriority, setUpdatingPriority] = useState(false);
   const [localPriority, setLocalPriority] = useState<IssuePriority | null>(null);
+  const [newComment, setNewComment] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalPriority(issue ? getIssuePriority(issue) : null);
@@ -148,7 +151,7 @@ export default function GithubIssueModal({ issue, isOpen, projectId, columns, on
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  useEffect(() => {
+  const fetchComments = useCallback(() => {
     if (!isOpen || !issue || !projectId) return;
     setLoadingComments(true);
     api.github.getComments(projectId, issue.number)
@@ -159,6 +162,31 @@ export default function GithubIssueModal({ issue, isOpen, projectId, columns, on
       .catch(() => setComments([]))
       .finally(() => setLoadingComments(false));
   }, [isOpen, issue?.number, projectId]);
+
+  useEffect(() => {
+    setNewComment('');
+    fetchComments();
+  }, [fetchComments]);
+
+  const handleAddComment = async () => {
+    if (!issue || !newComment.trim() || submittingComment) return;
+    setSubmittingComment(true);
+    setCommentError(null);
+    try {
+      const r = await api.github.addComment(projectId, issue.number, newComment.trim());
+      if (r.ok) {
+        setNewComment('');
+        fetchComments();
+      } else {
+        const data = await r.json().catch(() => ({}));
+        setCommentError(data.error || `Error ${r.status}`);
+      }
+    } catch (e: unknown) {
+      setCommentError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
 
   const handleColumnChange = async (toColumnId: string) => {
     if (!issue || updatingStatus) return;
@@ -360,6 +388,37 @@ export default function GithubIssueModal({ issue, isOpen, projectId, columns, on
                 ))}
               </div>
             ) : null}
+
+            {/* Add comment */}
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+                <MessageSquarePlus className="h-4 w-4" />
+                Add comment
+              </div>
+              <textarea
+                value={newComment}
+                onChange={e => setNewComment(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComment();
+                }}
+                placeholder="Leave a comment… (Ctrl+Enter to submit)"
+                rows={3}
+                className="w-full resize-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:placeholder-gray-500 dark:focus:border-blue-500 dark:focus:ring-blue-500"
+              />
+              {commentError && (
+                <p className="text-xs text-red-500 dark:text-red-400">{commentError}</p>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleAddComment}
+                  disabled={!newComment.trim() || submittingComment}
+                  className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
+                >
+                  {submittingComment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Comment
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

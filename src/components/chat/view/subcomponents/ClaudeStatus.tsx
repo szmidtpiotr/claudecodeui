@@ -15,6 +15,7 @@ type ClaudeStatusProps = {
   isLoading: boolean;
   provider?: string;
   messages?: ChatMessage[];
+  escPendingAbort?: boolean;
 };
 
 const ACTION_KEYS = [
@@ -182,6 +183,7 @@ export default function ClaudeStatus({
   isLoading,
   provider = 'claude',
   messages = [],
+  escPendingAbort = false,
 }: ClaudeStatusProps) {
   const { t } = useTranslation('chat');
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -276,15 +278,26 @@ export default function ClaudeStatus({
               <button
                 type="button"
                 onClick={onAbort}
-                className="group flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-bold text-destructive transition-all hover:bg-destructive hover:text-destructive-foreground"
+                className={cn(
+                  'group flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold transition-all',
+                  escPendingAbort
+                    ? 'animate-pulse bg-destructive text-destructive-foreground'
+                    : 'bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground',
+                )}
               >
                 <svg className="h-3 w-3 fill-current" viewBox="0 0 24 24">
                   <path d="M6 6h12v12H6z" />
                 </svg>
-                <span className="hidden sm:inline">STOP</span>
-                <kbd className="hidden rounded bg-black/10 px-1 text-[9px] group-hover:bg-white/20 sm:block">
-                  ESC
-                </kbd>
+                {escPendingAbort ? (
+                  <span className="hidden sm:inline">ESC again to stop</span>
+                ) : (
+                  <span className="hidden sm:inline">STOP</span>
+                )}
+                {!escPendingAbort && (
+                  <kbd className="hidden rounded bg-black/10 px-1 text-[9px] group-hover:bg-white/20 sm:block">
+                    ESC
+                  </kbd>
+                )}
               </button>
             </>
           )}

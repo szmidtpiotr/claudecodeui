@@ -1,4 +1,8 @@
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import Anthropic from '@anthropic-ai/sdk';
 
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
@@ -13,12 +17,146 @@ import {
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
 
+const MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+let modelsCache: { models: ProviderModelsDefinition; fetchedAt: number } | null = null;
+
+async function readCredentialToken(): Promise<{ type: 'api_key' | 'oauth'; token: string } | null> {
+  if (process.env.ANTHROPIC_API_KEY?.trim()) {
+    return { type: 'api_key', token: process.env.ANTHROPIC_API_KEY.trim() };
+  }
+
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    const envBlock = settings?.env as Record<string, unknown> | undefined;
+    const apiKey = envBlock?.ANTHROPIC_API_KEY;
+    if (typeof apiKey === 'string' && apiKey.trim()) {
+      return { type: 'api_key', token: apiKey.trim() };
+    }
+    const authToken = envBlock?.ANTHROPIC_AUTH_TOKEN;
+    if (typeof authToken === 'string' && authToken.trim()) {
+      return { type: 'oauth', token: authToken.trim() };
+    }
+  } catch {
+    // fall through
+  }
+
+  try {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    const creds = JSON.parse(await readFile(credPath, 'utf8')) as Record<string, unknown>;
+    const oauth = creds?.claudeAiOauth as Record<string, unknown> | undefined;
+    const accessToken = oauth?.accessToken;
+    if (typeof accessToken === 'string' && accessToken.trim()) {
+      return { type: 'oauth', token: accessToken.trim() };
+    }
+  } catch {
+    // fall through
+  }
+
+  return null;
+}
+
+type PricingEntry = { input: string; output: string; usageFactor?: string };
+
+const MODEL_PRICING: Array<{ pattern: RegExp; pricing: PricingEntry }> = [
+  { pattern: /^claude-fable/,        pricing: { input: '$5',    output: '$25',  usageFactor: '~2× limits' } },
+  { pattern: /^claude-opus-4-[89]/,  pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
+  { pattern: /^claude-opus-4/,       pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
+  { pattern: /^claude-sonnet-4/,     pricing: { input: '$3',    output: '$15',  usageFactor: '0.5× limits' } },
+  { pattern: /^claude-haiku-4/,      pricing: { input: '$0.80', output: '$4',   usageFactor: '0.25× limits' } },
+];
+
+function getModelPricing(modelId: string): PricingEntry | null {
+  for (const { pattern, pricing } of MODEL_PRICING) {
+    if (pattern.test(modelId)) return pricing;
+  }
+  return null;
+}
+
+function buildModelDescription(
+  displayName: string,
+  modelId: string,
+  maxInputTokens?: number | null,
+  authType?: 'api_key' | 'oauth',
+): string {
+  const pricing = getModelPricing(modelId);
+  const ctx = maxInputTokens && maxInputTokens >= 900_000 ? '1M ctx' : maxInputTokens ? `${Math.round(maxInputTokens / 1000)}k ctx` : null;
+  const parts: string[] = [];
+  if (ctx) parts.push(ctx);
+  if (pricing) {
+    parts.push(`$${pricing.input.replace('$', '')}/$${pricing.output.replace('$', '')} per Mtok`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : displayName;
+}
+
+function buildModelsDefinition(
+  apiModels: Array<{ id: string; display_name: string; max_input_tokens?: number | null }>,
+  authType?: 'api_key' | 'oauth',
+): ProviderModelsDefinition {
+  const defaultDesc = authType === 'oauth'
+    ? 'Best available model · 1M ctx'
+    : 'Best available model · 1M ctx · API default';
+  const OPTIONS = [
+    {
+      value: 'default',
+      label: 'Default (recommended)',
+      description: defaultDesc,
+    },
+    ...apiModels.map((m) => ({
+      value: m.id,
+      label: m.display_name.replace(/^Claude\s+/i, ''),
+      description: buildModelDescription(m.display_name, m.id, m.max_input_tokens, authType),
+    })),
+  ];
+  return { OPTIONS, DEFAULT: 'default' };
+}
+
+async function fetchDynamicModels(): Promise<ProviderModelsDefinition | null> {
+  if (modelsCache && Date.now() - modelsCache.fetchedAt < MODELS_CACHE_TTL_MS) {
+    return modelsCache.models;
+  }
+
+  const credential = await readCredentialToken();
+  if (!credential) return null;
+
+  try {
+    const clientOpts: ConstructorParameters<typeof Anthropic>[0] = {
+      defaultHeaders: { 'anthropic-beta': 'claude-code-20250219' },
+    };
+    if (credential.type === 'api_key') {
+      clientOpts.apiKey = credential.token;
+    } else {
+      clientOpts.authToken = credential.token;
+      clientOpts.apiKey = '';
+    }
+
+    const client = new Anthropic(clientOpts);
+    const result = await client.models.list();
+    const models = (result.data ?? []).filter(
+      (m) => typeof m.id === 'string' && typeof m.display_name === 'string',
+    );
+
+    if (models.length === 0) return null;
+
+    const definition = buildModelsDefinition(models, credential.type);
+    modelsCache = { models: definition, fetchedAt: Date.now() };
+    return definition;
+  } catch {
+    return null;
+  }
+}
+
 export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'default',
       label: 'Default (recommended)',
-      description: 'Opus 4.8 (1M context) · $5/$25 per Mtok',
+      description: 'Opus 4.8 with 1M context · Best for everyday, complex tasks',
+    },
+    {
+      value: 'fable',
+      label: 'Fable',
+      description: 'Fable 5 · Most capable for hardest tasks · Uses limits ~2× faster than Opus',
     },
     {
       value: 'opus',
@@ -26,29 +164,14 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       description: 'Most capable · $5/$25 per Mtok',
     },
     {
-      value: 'opus[1m]',
-      label: 'Opus 4.8 (1M context)',
-      description: 'Long sessions · $5/$25 per Mtok',
-    },
-    {
       value: 'sonnet',
       label: 'Sonnet 4.6',
-      description: 'Balanced · $3/$15 per Mtok',
-    },
-    {
-      value: 'sonnet[1m]',
-      label: 'Sonnet 4.6 (1M context)',
-      description: 'Long sessions · $3/$15 per Mtok',
+      description: 'Efficient for routine tasks · $3/$15 per Mtok',
     },
     {
       value: 'haiku',
       label: 'Haiku 4.5',
-      description: 'Fastest · $1/$5 per Mtok',
-    },
-    {
-      value: 'opusplan',
-      label: 'Opus Plan',
-      description: 'Plan mode only',
+      description: 'Fastest for quick answers · $1/$5 per Mtok',
     },
   ],
   DEFAULT: 'default',
@@ -164,18 +287,7 @@ const readClaudeSessionModelFromJsonl = async (
 
 export class ClaudeProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    // claude creates a new jsonl file as a separate session for this request.
-    // As a result, it lists the workspace where this is invoked when it shouldn't.
-    //
-    // Disabled for now:
-    // const queryInstance = query({
-    //   prompt: 'Get supported models',
-    //   options: buildClaudeQueryOptions(),
-    // });
-    // const supportedModels = await queryInstance.supportedModels();
-    // queryInstance.close();
-    // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_FALLBACK_MODELS;
+    return (await fetchDynamicModels()) ?? CLAUDE_FALLBACK_MODELS;
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {

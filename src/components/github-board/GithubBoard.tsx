@@ -16,7 +16,7 @@ type IssuesData = {
   columns: GithubColumn[];
 };
 
-type SortKey = 'updated' | 'created' | 'priority' | 'comments';
+type SortKey = 'updated' | 'created' | 'priority' | 'comments' | 'title' | 'number';
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2, '': 3 };
 
@@ -162,6 +162,10 @@ export default function GithubBoard() {
       cmp = (PRIORITY_ORDER[pa] ?? 3) - (PRIORITY_ORDER[pb] ?? 3);
     } else if (sortKey === 'comments') {
       cmp = a.comments - b.comments;
+    } else if (sortKey === 'title') {
+      cmp = a.title.localeCompare(b.title);
+    } else if (sortKey === 'number') {
+      cmp = a.number - b.number;
     } else if (sortKey === 'created') {
       cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     } else {
@@ -217,7 +221,7 @@ export default function GithubBoard() {
     col => collapsedColumns.has(col.id) || filteredIssues.some(i => i.columnId === col.id),
   );
 
-  const SORT_LABELS: Record<SortKey, string> = { updated: 'Updated', created: 'Created', priority: 'Priority', comments: 'Comments' };
+  const SORT_LABELS: Record<SortKey, string> = { updated: 'Updated', created: 'Created', priority: 'Priority', comments: 'Comments', title: 'Title', number: 'Issue #' };
 
   return (
     <>
@@ -304,7 +308,7 @@ export default function GithubBoard() {
           </button>
           {showSortMenu && (
             <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
-              {(['updated', 'created', 'priority', 'comments'] as SortKey[]).map(k => (
+              {(['updated', 'created', 'priority', 'comments', 'title', 'number'] as SortKey[]).map(k => (
                 <button key={k}
                   onClick={() => {
                     if (sortKey === k) setSortAsc(v => !v);

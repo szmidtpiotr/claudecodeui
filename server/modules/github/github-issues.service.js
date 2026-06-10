@@ -57,6 +57,15 @@ export async function fetchComments(projectPath, issueNumber) {
     return comments;
 }
 
+export async function addComment(projectPath, issueNumber, body) {
+    const config = await readSyncConfig(projectPath);
+    if (!config?.token || !config?.owner || !config?.repo) throw new Error('Not configured');
+
+    const comment = await github.createIssueComment(config.token, config.owner, config.repo, issueNumber, body);
+    cacheDeletePrefix(`comments:${config.owner}/${config.repo}:${issueNumber}`);
+    return comment;
+}
+
 export async function patchIssue(projectPath, issueNumber, { state, addLabels, removeLabels, title, labels }) {
     const config = await readSyncConfig(projectPath);
     if (!config?.token || !config?.owner || !config?.repo) throw new Error('Not configured');
