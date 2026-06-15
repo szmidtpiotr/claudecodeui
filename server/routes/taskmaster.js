@@ -15,7 +15,6 @@ import { promises as fsPromises } from 'fs';
 import express from 'express';
 
 import { projectsDb } from '../modules/database/index.js';
-import { syncNewTasksToGitHub, syncTaskToGitHub } from '../modules/github/github-sync.service.js';
 import { detectTaskMasterMCPServer } from '../utils/mcp-detector.js';
 import { broadcastTaskMasterProjectUpdate, broadcastTaskMasterTasksUpdate } from '../utils/taskmaster-websocket.js';
 
@@ -645,11 +644,6 @@ router.post('/add-task/:projectId', async (req, res) => {
                     );
                 }
 
-                // GitHub sync — fire and forget
-                syncNewTasksToGitHub(projectPath).catch(e =>
-                    console.error('[GitHub Sync] add-task:', e.message)
-                );
-
                 res.json({
                     projectId,
                     projectPath,
@@ -720,11 +714,6 @@ router.put('/update-task/:projectId/:taskId', async (req, res) => {
                         broadcastTaskMasterTasksUpdate(req.app.locals.wss, projectId);
                     }
 
-                    // GitHub sync — fire and forget
-                    syncTaskToGitHub(projectPath, taskId).catch(e =>
-                        console.error('[GitHub Sync] set-status:', e.message)
-                    );
-
                     res.json({
                         projectId,
                         projectPath,
@@ -776,11 +765,6 @@ router.put('/update-task/:projectId/:taskId', async (req, res) => {
                     if (req.app.locals.wss) {
                         broadcastTaskMasterTasksUpdate(req.app.locals.wss, projectId);
                     }
-
-                    // GitHub sync — fire and forget
-                    syncTaskToGitHub(projectPath, taskId).catch(e =>
-                        console.error('[GitHub Sync] update-task:', e.message)
-                    );
 
                     res.json({
                         projectId,

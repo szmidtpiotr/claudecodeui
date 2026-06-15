@@ -168,10 +168,12 @@ export default function VoiceSettingsTab() {
   const handleTest = async () => {
     setTestStatus('idle');
     setTestInfo('checking…');
+    const token = localStorage.getItem('auth-token');
+    const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     try {
       const [hRes, cRes] = await Promise.all([
-        fetch(`${settings.url}/voice/healthz`),
-        fetch(`${settings.url}/voice/config`),
+        fetch('/api/voice/healthz', { headers: authHeaders }),
+        fetch('/api/voice/config', { headers: authHeaders }),
       ]);
       if (!hRes.ok) throw new Error(`HTTP ${hRes.status}`);
       const h = await hRes.json() as Record<string, unknown>;

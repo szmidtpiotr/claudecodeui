@@ -1,6 +1,7 @@
 import webPush from 'web-push';
 
 import { notificationPreferencesDb, pushSubscriptionsDb, sessionsDb } from '../modules/database/index.js';
+import { dispatchToChannelPlugins } from './channel-plugins.js';
 
 const KIND_TO_PREF_KEY = {
   action_required: 'actionRequired',
@@ -189,21 +190,24 @@ function notifyUserIfEnabled({ userId, event }) {
   if (!userId || !event) {
     return;
   }
-
-  const preferences = notificationPreferencesDb.getPreferences(userId);
-  if (!shouldSendPush(preferences, event)) {
-    return;
-  }
   if (isDuplicate(event)) {
     return;
   }
 
-  sendWebPush(userId, event).catch((err) => {
-    console.error('Web push send error:', err);
-  });
+  // Fan out to external notification-channel plugins (e.g. claude-notify → Telegram).
+  dispatchToChannelPlugins({ userId, event }).catch((err) =>
+    console.error('Channel plugin dispatch error:', err)
+  );
+
+  const preferences = notificationPreferencesDb.getPreferences(userId);
+  if (shouldSendPush(preferences, event)) {
+    sendWebPush(userId, event).catch((err) => {
+      console.error('Web push send error:', err);
+    });
+  }
 }
 
-function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null }) {
+function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'completed', sessionName = null, summary = null }) {
   notifyUserIfEnabled({
     userId,
     event: createNotificationEvent({
@@ -211,7 +215,7 @@ function notifyRunStopped({ userId, provider, sessionId = null, stopReason = 'co
       sessionId,
       kind: 'stop',
       code: 'run.stopped',
-      meta: { stopReason, sessionName },
+      meta: { stopReason, sessionName, summary },
       severity: 'info',
       dedupeKey: `${provider}:run:stop:${sessionId || 'none'}:${stopReason}`
     })

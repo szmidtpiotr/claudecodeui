@@ -210,6 +210,7 @@ export function scanPlugins() {
         entry: manifest.entry,
         server: manifest.server || null,
         permissions: manifest.permissions || [],
+        capabilities: Array.isArray(manifest.capabilities) ? manifest.capabilities : [],
         enabled: config[manifest.name]?.enabled !== false, // enabled by default
         dirName: entry.name,
         repoUrl,

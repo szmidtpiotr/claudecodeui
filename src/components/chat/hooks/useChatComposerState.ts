@@ -31,6 +31,27 @@ type PendingViewSession = {
   startedAt: number;
 };
 
+// Verify a buffer's leading bytes match a real encoded-image signature. Guards
+// against the Android failure mode where a blank/raw-RGBA buffer is handed over
+// as image/png — it has no PNG header, so the agent gets an unreadable file.
+function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
+  // SVG is text, not a binary magic — accept as long as it's non-empty.
+  if (mimeType === 'image/svg+xml') return buf.byteLength > 0;
+  const b = new Uint8Array(buf.slice(0, 12));
+  const starts = (sig: number[], offset = 0) => sig.every((v, i) => b[offset + i] === v);
+  // PNG
+  if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return true;
+  // JPEG
+  if (starts([0xff, 0xd8, 0xff])) return true;
+  // GIF87a / GIF89a
+  if (starts([0x47, 0x49, 0x46, 0x38])) return true;
+  // WEBP: "RIFF"...."WEBP"
+  if (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], 8)) return true;
+  // BMP
+  if (starts([0x42, 0x4d])) return true;
+  return false;
+}
+
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
@@ -506,9 +527,45 @@ export function useChatComposerState({
       }
     });
 
-    if (validFiles.length > 0) {
-      setAttachedImages((previous) => [...previous, ...validFiles].slice(0, 5));
-    }
+    if (validFiles.length === 0) return;
+
+    // Snapshot bytes NOW, while the File is still readable. Clipboard/picker
+    // Files on Android Chrome (and scrcpy) are backed by content:// URIs that
+    // become unreadable a tick later — held until send, they read as an empty
+    // (all-zero) blob, so the upload silently lands a blank image. Re-wrap each
+    // File around its bytes immediately to detach it from the volatile source,
+    // and verify the bytes are a real encoded image (the failure mode is a
+    // raw-RGBA / all-zero buffer mislabeled image/png — no valid signature).
+    void Promise.all(
+      validFiles.map(async (file) => {
+        const fail = (msg: string) => {
+          setImageErrors((previous) => {
+            const next = new Map(previous);
+            next.set(file.name || 'image', msg);
+            return next;
+          });
+          return null;
+        };
+        try {
+          const buf = await file.arrayBuffer();
+          if (buf.byteLength === 0) {
+            return fail('Image was empty — re-attach it');
+          }
+          if (!hasValidImageSignature(buf, file.type)) {
+            return fail('Image looks corrupt (not a real image file) — re-attach it');
+          }
+          return new File([buf], file.name, { type: file.type });
+        } catch (error) {
+          console.error('Failed to read image bytes:', error, file);
+          return fail('Could not read image — re-attach it');
+        }
+      }),
+    ).then((snapshots) => {
+      const stable = snapshots.filter((f): f is File => f !== null);
+      if (stable.length > 0) {
+        setAttachedImages((previous) => [...previous, ...stable].slice(0, 5));
+      }
+    });
   }, []);
 
   const handlePaste = useCallback(
@@ -634,7 +691,8 @@ export function useChatComposerState({
           });
 
           if (!response.ok) {
-            throw new Error('Failed to upload images');
+            const detail = await response.json().catch(() => null);
+            throw new Error(detail?.error || 'Failed to upload images');
           }
 
           const result = await response.json();

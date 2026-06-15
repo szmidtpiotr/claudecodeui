@@ -1151,11 +1151,19 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
                     req.files.map(async (file) => {
                         // Read file and convert to base64
                         const buffer = await fs.readFile(file.path);
-                        const base64 = buffer.toString('base64');
-                        const mimeType = file.mimetype;
 
                         // Clean up temp file immediately
                         await fs.unlink(file.path);
+
+                        // Reject empty / all-zero blobs. Android clipboard Files
+                        // can upload as a blank buffer; writing it silently leaves
+                        // the agent with an unreadable image and no error shown.
+                        if (buffer.length === 0 || buffer.every((b) => b === 0)) {
+                            throw new Error(`Image "${file.originalname}" arrived empty — re-attach it`);
+                        }
+
+                        const base64 = buffer.toString('base64');
+                        const mimeType = file.mimetype;
 
                         return {
                             name: file.originalname,
@@ -1171,7 +1179,7 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
                 console.error('Error processing images:', error);
                 // Clean up any remaining files
                 await Promise.all(req.files.map(f => fs.unlink(f.path).catch(() => { })));
-                res.status(500).json({ error: 'Failed to process images' });
+                res.status(400).json({ error: error.message || 'Failed to process images' });
             }
         });
     } catch (error) {

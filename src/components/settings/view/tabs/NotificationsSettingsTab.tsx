@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isAudioEnabled, isAudioCompleteEnabled, setAudioEnabled, setAudioCompleteEnabled } from '../../../../utils/audioNotification';
 import type { NotificationPreferencesState } from '../../types/types';
+import { usePlugins } from '../../../../contexts/PluginsContext';
+import ChannelPluginMount from './ChannelPluginMount';
 
 type NotificationsSettingsTabProps = {
   notificationPreferences: NotificationPreferencesState;
@@ -24,6 +26,10 @@ export default function NotificationsSettingsTab({
   onDisablePush,
 }: NotificationsSettingsTabProps) {
   const { t } = useTranslation('settings');
+  const { plugins } = usePlugins();
+  const channelPlugins = plugins.filter(
+    (p) => p.enabled && p.capabilities?.includes('notificationChannel'),
+  );
   const [audioEnabled, setAudioEnabledState] = useState(() => isAudioEnabled());
   const [audioCompleteEnabled, setAudioCompleteEnabledState] = useState(() => isAudioCompleteEnabled());
 
@@ -154,6 +160,13 @@ export default function NotificationsSettingsTab({
           </label>
         </div>
       </div>
+
+      {channelPlugins.map((plugin) => (
+        <div key={plugin.name} className="space-y-3 bg-card border border-border rounded-lg p-4">
+          <h4 className="font-medium text-foreground">{plugin.displayName}</h4>
+          <ChannelPluginMount pluginName={plugin.name} entry={plugin.entry} />
+        </div>
+      ))}
 
       <div className="space-y-4 bg-card border border-border rounded-lg p-4">
         <div className="flex items-center gap-3">

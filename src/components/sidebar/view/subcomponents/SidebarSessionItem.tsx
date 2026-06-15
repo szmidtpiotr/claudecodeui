@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Edit2, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import { Badge, Button, Tooltip } from '../../../../shared/view/ui';
+import { Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
@@ -81,6 +81,34 @@ export default function SidebarSessionItem({
   const compactSessionAge = formatCompactSessionAge(sessionView.sessionTime, currentTime);
   const editingContainerRef = useRef<HTMLDivElement>(null);
 
+  // Mobile rename: long-press (>1s) opens a modal. Touch devices have no hover,
+  // so the desktop group-hover pencil is unreachable — the long-press + modal is
+  // the only rename affordance on phones.
+  const LONG_PRESS_MS = 1000;
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => clearLongPressTimer, []);
+
+  // `editingSession` is shared with the desktop inline-rename panel. The modal
+  // portals to document.body, escaping the `md:hidden` wrapper — so gate it on
+  // the same breakpoint (Tailwind md = 768px) to keep it phone-only.
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobileViewport(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
   // The rename panel sits inside a group-hover opacity wrapper, so leaving the row
   // would visually hide it. While editing, dismiss only when the user clicks outside
   // the panel (matches Escape / cancel-button behaviour).
@@ -103,8 +131,23 @@ export default function SidebarSessionItem({
   // Sessions are owned by a project identified by `projectId` (DB primary key)
   // after the projectName → projectId migration.
   const selectMobileSession = () => {
+    // Swallow the click that fires after a long-press so the rename gesture
+    // doesn't also navigate into the session.
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      return;
+    }
     onProjectSelect(project);
     onSessionSelect(session, project.projectId);
+  };
+
+  const startLongPress = () => {
+    longPressFiredRef.current = false;
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      onStartEditingSession(session.id, sessionView.sessionName);
+    }, LONG_PRESS_MS);
   };
 
   const saveEditedSession = () => {
@@ -139,6 +182,11 @@ export default function SidebarSessionItem({
               : 'border-border/30',
           )}
           onClick={selectMobileSession}
+          onTouchStart={startLongPress}
+          onTouchEnd={clearLongPressTimer}
+          onTouchMove={clearLongPressTimer}
+          onTouchCancel={clearLongPressTimer}
+          onContextMenu={(event) => event.preventDefault()}
         >
           <div className="flex items-center gap-2">
             <div
@@ -179,6 +227,39 @@ export default function SidebarSessionItem({
             )}
           </div>
         </div>
+
+        <Dialog open={isEditing && isMobileViewport} onOpenChange={(open) => { if (!open) onCancelEditingSession(); }}>
+          <DialogContent
+            className="max-w-[calc(100vw-2rem)] p-4"
+            onEscapeKeyDown={onCancelEditingSession}
+            onPointerDownOutside={onCancelEditingSession}
+          >
+            <DialogTitle>{t('tooltips.editSessionName')}</DialogTitle>
+            <p className="mb-2 text-sm font-medium text-foreground">{t('tooltips.editSessionName')}</p>
+            <input
+              type="text"
+              value={editingSessionName}
+              onChange={(event) => onEditingSessionNameChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  saveEditedSession();
+                }
+              }}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              autoFocus
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" onClick={onCancelEditingSession}>
+                <X className="mr-1 h-4 w-4" />
+                {t('tooltips.cancel')}
+              </Button>
+              <Button onClick={saveEditedSession}>
+                <Check className="mr-1 h-4 w-4" />
+                {t('tooltips.save')}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="hidden md:block">

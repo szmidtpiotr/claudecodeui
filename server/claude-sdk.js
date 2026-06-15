@@ -671,6 +671,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     let compactionOccurred = false;
+    let finalResultText = null;
     for await (const message of queryInstance) {
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
@@ -713,6 +714,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
       // Extract and send token budget updates from result messages
       if (message.type === 'result') {
+        // Capture the final assistant text for the completion notification.
+        if (typeof message.result === 'string' && message.result.trim()) {
+          finalResultText = message.result.trim();
+        }
         const models = Object.keys(message.modelUsage || {});
         if (models.length > 0) {
           // Model info available in result message
@@ -745,7 +750,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       provider: 'claude',
       sessionId: capturedSessionId || sessionId || null,
       sessionName: sessionSummary,
-      stopReason: 'completed'
+      stopReason: 'completed',
+      summary: finalResultText
     });
     // Complete
 

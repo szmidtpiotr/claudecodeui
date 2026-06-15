@@ -44,6 +44,10 @@ export default defineConfig(({ mode }) => {
         '/plugin-ws': {
           target: `ws://${proxyHost}:${serverPort}`,
           ws: true
+        },
+        '/voice-stt': {
+          target: `ws://${proxyHost}:${serverPort}`,
+          ws: true
         }
       }
     },

@@ -56,6 +56,8 @@ export default function MainContentTabSwitcher({
 
   const pluginTabs: PluginTab[] = plugins
     .filter((p) => p.enabled)
+    // Notification-channel plugins render inside Settings → Notifications, not the top bar.
+    .filter((p) => !p.capabilities?.includes('notificationChannel'))
     .map((p) => ({
       kind: 'plugin',
       id: `plugin:${p.name}` as AppTab,

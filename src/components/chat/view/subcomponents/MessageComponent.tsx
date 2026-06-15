@@ -186,6 +186,15 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                     alt={img.name}
                     className="h-auto max-w-full cursor-pointer rounded-lg transition-opacity hover:opacity-90"
                     onClick={() => setLightboxSrc({ src: img.src, alt: img.name })}
+                    onError={(e) => {
+                      // File-backed image failed to load (e.g. missing/corrupt on
+                      // disk). Show a visible placeholder instead of vanishing.
+                      const el = e.currentTarget;
+                      el.onerror = null;
+                      el.removeAttribute('src');
+                      el.alt = `⚠ ${img.name} — image unavailable`;
+                      el.className = 'rounded-lg bg-blue-700/40 px-2 py-1 text-xs text-blue-100';
+                    }}
                   />
                 ))}
               </div>
