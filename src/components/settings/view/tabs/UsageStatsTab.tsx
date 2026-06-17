@@ -32,6 +32,7 @@ const MODEL_COLORS: Record<string, string> = {
   opus: '#a855f7',
   sonnet: '#3b82f6',
   haiku: '#14b8a6',
+  fable: '#f97316',
 };
 
 function modelShortName(model: string): string {
