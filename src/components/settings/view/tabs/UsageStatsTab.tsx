@@ -13,16 +13,13 @@ type ModelTotals = {
   messages: number;
 };
 
-type DailyUsage = {
-  date: string;
-  models: Record<string, ModelTotals>;
-};
+type DailyUsage = { date: string; models: Record<string, ModelTotals> };
+type HourlyUsage = { hour: number; models: Record<string, ModelTotals> };
+type ProjectUsage = { project: string; total: number; models: Record<string, ModelTotals> };
 
-type DailyResponse = {
-  success: boolean;
-  timezone: string;
-  days: DailyUsage[];
-};
+type DailyResponse = { success: boolean; timezone: string; updatedAt: string | null; days: DailyUsage[] };
+type HourlyResponse = { success: boolean; date: string; hours: HourlyUsage[] };
+type ProjectsResponse = { success: boolean; projects: ProjectUsage[] };
 
 type RangeKey = '7' | '30' | 'all';
 
@@ -71,75 +68,68 @@ function modelTotal(m: ModelTotals, hideCacheRead: boolean): number {
   return hideCacheRead ? m.input + m.output + m.cache_creation : m.total;
 }
 
-function StackedBarChart({
-  days,
+type Bucket = { label: string; models: Record<string, ModelTotals> };
+
+/** Vertical stacked-bar chart over an ordered list of buckets (days or hours). */
+function StackedBars({
+  buckets,
   models,
   hideCacheRead,
   percentMode,
 }: {
-  days: DailyUsage[];
+  buckets: Bucket[];
   models: string[];
   hideCacheRead: boolean;
   percentMode: boolean;
 }) {
-  // Oldest -> newest along the x-axis.
-  const ordered = [...days].reverse();
-  const dayTotals = ordered.map((d) =>
-    models.reduce((sum, m) => sum + (d.models[m] ? modelTotal(d.models[m], hideCacheRead) : 0), 0),
+  const totals = buckets.map((b) =>
+    models.reduce((sum, m) => sum + (b.models[m] ? modelTotal(b.models[m], hideCacheRead) : 0), 0),
   );
-  const maxTotal = Math.max(1, ...dayTotals);
+  const maxTotal = Math.max(1, ...totals);
 
-  const H = 180;
-  const labelH = 22;
-  const colGap = 6;
-  const n = ordered.length;
-  const colW = n > 0 ? Math.max(8, Math.min(48, (640 - colGap * n) / n)) : 24;
+  const H = 160;
+  const labelH = 18;
+  const colGap = 4;
+  const n = buckets.length;
+  const colW = n > 0 ? Math.max(6, Math.min(48, (640 - colGap * n) / n)) : 24;
   const W = n * (colW + colGap) + colGap;
 
   return (
     <svg
       viewBox={`0 0 ${Math.max(W, 320)} ${H + labelH}`}
-      className="h-[202px] w-full"
+      className="h-[178px] w-full"
       preserveAspectRatio="xMidYMax meet"
     >
-      {ordered.map((d, i) => {
+      {buckets.map((b, i) => {
         const x = colGap + i * (colW + colGap);
-        const dayTotal = dayTotals[i];
-        const scaleTotal = percentMode ? dayTotal || 1 : maxTotal;
-        const barH = percentMode ? H : (dayTotal / maxTotal) * H;
+        const total = totals[i];
+        const scaleTotal = percentMode ? total || 1 : maxTotal;
+        const barH = percentMode ? (total > 0 ? H : 0) : (total / maxTotal) * H;
         let yCursor = H - barH;
         const segments = models
-          .filter((m) => d.models[m])
+          .filter((m) => b.models[m])
           .map((m) => {
-            const val = modelTotal(d.models[m], hideCacheRead);
+            const val = modelTotal(b.models[m], hideCacheRead);
             const segH = scaleTotal > 0 ? (val / scaleTotal) * barH : 0;
             const seg = { m, y: yCursor, h: segH, val };
             yCursor += segH;
             return seg;
           });
         return (
-          <g key={d.date}>
+          <g key={b.label + i}>
             {segments.map((s) => (
-              <rect
-                key={s.m}
-                x={x}
-                y={s.y}
-                width={colW}
-                height={Math.max(0, s.h)}
-                fill={modelColor(s.m)}
-                rx={1}
-              >
-                <title>{`${d.date} · ${modelShortName(s.m)}: ${fullNumber(s.val)}`}</title>
+              <rect key={s.m} x={x} y={s.y} width={colW} height={Math.max(0, s.h)} fill={modelColor(s.m)} rx={1}>
+                <title>{`${b.label} · ${modelShortName(s.m)}: ${fullNumber(s.val)}`}</title>
               </rect>
             ))}
             <text
               x={x + colW / 2}
-              y={H + labelH - 6}
+              y={H + labelH - 5}
               textAnchor="middle"
               className="fill-muted-foreground"
-              style={{ fontSize: 9 }}
+              style={{ fontSize: 8 }}
             >
-              {d.date.slice(5)}
+              {b.label}
             </text>
           </g>
         );
@@ -150,38 +140,62 @@ function StackedBarChart({
 
 export default function UsageStatsTab() {
   const [data, setData] = useState<DailyResponse | null>(null);
+  const [projects, setProjects] = useState<ProjectUsage[]>([]);
+  const [hourly, setHourly] = useState<Record<string, HourlyUsage[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('7');
   const [hideCacheRead, setHideCacheRead] = useState(false);
   const [percentMode, setPercentMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Models toggled off via the legend — excluded from the chart and the Σ.
+  // Models toggled off via the legend — excluded from the charts and the Σ.
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  const fromParam = useMemo(() => (range === 'all' ? '' : isoDaysAgo(Number(range))), [range]);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (range !== 'all') params.set('from', isoDaysAgo(Number(range)));
+      if (fromParam) params.set('from', fromParam);
+      const projParams = params.toString();
       if (refresh) params.set('refresh', '1');
-      const res = await authenticatedFetch(`/api/usage/daily?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: DailyResponse = await res.json();
-      setData(json);
-      // Auto-expand the most recent day for quick reading.
-      if (json.days.length) setExpanded(new Set([json.days[0].date]));
+      const [dRes, pRes] = await Promise.all([
+        authenticatedFetch(`/api/usage/daily?${params.toString()}`),
+        authenticatedFetch(`/api/usage/projects?${projParams}`),
+      ]);
+      if (!dRes.ok) throw new Error(`HTTP ${dRes.status}`);
+      const dJson: DailyResponse = await dRes.json();
+      setData(dJson);
+      setHourly({}); // range changed — drop cached hourly breakdowns
+      if (pRes.ok) {
+        const pJson: ProjectsResponse = await pRes.json();
+        setProjects(pJson.projects ?? []);
+      }
+      if (dJson.days.length) setExpanded(new Set([dJson.days[0].date]));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [fromParam]);
 
   useEffect(() => {
     void load(false);
   }, [load]);
+
+  const fetchHourly = useCallback(async (date: string) => {
+    if (hourly[date]) return;
+    try {
+      const res = await authenticatedFetch(`/api/usage/hourly?date=${date}`);
+      if (!res.ok) return;
+      const json: HourlyResponse = await res.json();
+      setHourly((prev) => ({ ...prev, [date]: json.hours ?? [] }));
+    } catch {
+      /* non-fatal — hourly chart just won't render */
+    }
+  }, [hourly]);
 
   const days = useMemo(() => data?.days ?? [], [data]);
 
@@ -196,7 +210,6 @@ export default function UsageStatsTab() {
     return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
   }, [days]);
 
-  // Legend-visible models, in the same volume order.
   const visibleModels = useMemo(() => models.filter((m) => !hidden.has(m)), [models, hidden]);
 
   const grandTotal = useMemo(
@@ -204,13 +217,15 @@ export default function UsageStatsTab() {
       days.reduce(
         (sum, d) =>
           sum +
-          Object.entries(d.models).reduce(
-            (s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)),
-            0,
-          ),
+          Object.entries(d.models).reduce((s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)), 0),
         0,
       ),
     [days, hideCacheRead, hidden],
+  );
+
+  const dayBuckets = useMemo<Bucket[]>(
+    () => [...days].reverse().map((d) => ({ label: d.date.slice(5), models: d.models })),
+    [days],
   );
 
   const toggleModel = (model: string) =>
@@ -224,10 +239,34 @@ export default function UsageStatsTab() {
   const toggleDay = (date: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+        void fetchHourly(date);
+      }
       return next;
     });
+
+  // Open day already expanded on first load needs its hourly data too.
+  useEffect(() => {
+    for (const date of expanded) void fetchHourly(date);
+  }, [expanded, fetchHourly]);
+
+  const updatedLabel = data?.updatedAt
+    ? new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+
+  const maxProjectTotal = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...projects.map((p) =>
+          Object.entries(p.models).reduce((s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)), 0),
+        ),
+      ),
+    [projects, hidden, hideCacheRead],
+  );
 
   return (
     <div className="space-y-5">
@@ -239,6 +278,7 @@ export default function UsageStatsTab() {
           </h3>
           <p className="text-xs text-muted-foreground">
             Tokens per day, per model · timezone {data?.timezone ?? '…'}
+            {updatedLabel && <> · updated {updatedLabel}</>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -288,9 +328,9 @@ export default function UsageStatsTab() {
             </span>
           </div>
 
-          {/* Chart */}
+          {/* Daily chart + legend */}
           <div className="rounded-lg border border-border bg-muted/20 p-3">
-            <StackedBarChart days={days} models={visibleModels} hideCacheRead={hideCacheRead} percentMode={percentMode} />
+            <StackedBars buckets={dayBuckets} models={visibleModels} hideCacheRead={hideCacheRead} percentMode={percentMode} />
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
               {models.map((m) => {
                 const isHidden = hidden.has(m);
@@ -315,12 +355,54 @@ export default function UsageStatsTab() {
             </div>
           </div>
 
+          {/* By project */}
+          {projects.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">By project</h4>
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3">
+                {projects.map((p) => {
+                  const visTotal = Object.entries(p.models).reduce(
+                    (s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)),
+                    0,
+                  );
+                  return (
+                    <div key={p.project} className="flex items-center gap-2 text-xs">
+                      <span className="w-32 flex-shrink-0 truncate text-foreground" title={p.project}>{p.project}</span>
+                      <div className="flex h-3 flex-1 overflow-hidden rounded bg-muted" style={{ maxWidth: `${(visTotal / maxProjectTotal) * 100}%` }}>
+                        {visibleModels.map((m) => {
+                          const t = p.models[m];
+                          if (!t) return null;
+                          const val = modelTotal(t, hideCacheRead);
+                          if (val <= 0 || visTotal <= 0) return null;
+                          return (
+                            <div
+                              key={m}
+                              style={{ width: `${(val / visTotal) * 100}%`, backgroundColor: modelColor(m) }}
+                              title={`${p.project} · ${modelShortName(m)}: ${fullNumber(val)}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <span className="w-14 flex-shrink-0 text-right tabular-nums text-muted-foreground" title={fullNumber(visTotal)}>
+                        {formatTokens(visTotal)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Daily breakdown table */}
           <div className="space-y-2">
             {days.map((d) => {
-              const dayTotal = Object.values(d.models).reduce((s, m) => s + modelTotal(m, hideCacheRead), 0);
+              const dayTotal = Object.entries(d.models).reduce((s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)), 0);
               const isOpen = expanded.has(d.date);
               const modelEntries = Object.entries(d.models).sort((a, b) => b[1].total - a[1].total);
+              const hourBuckets: Bucket[] = (hourly[d.date] ?? []).map((h) => ({
+                label: String(h.hour).padStart(2, '0'),
+                models: h.models,
+              }));
               return (
                 <div key={d.date} className="overflow-hidden rounded-lg border border-border">
                   <button
@@ -336,36 +418,44 @@ export default function UsageStatsTab() {
                     </span>
                   </button>
                   {isOpen && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-t border-border text-muted-foreground">
-                            <th className="px-3 py-1.5 text-left font-medium">Model</th>
-                            <th className="px-3 py-1.5 text-right font-medium">input</th>
-                            <th className="px-3 py-1.5 text-right font-medium">output</th>
-                            <th className="px-3 py-1.5 text-right font-medium">cache·crt</th>
-                            <th className="px-3 py-1.5 text-right font-medium">cache·rd</th>
-                            <th className="px-3 py-1.5 text-right font-medium">total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="tabular-nums">
-                          {modelEntries.map(([m, t]) => (
-                            <tr key={m} className="border-t border-border/50">
-                              <td className="px-3 py-1.5 text-left">
-                                <span className="flex items-center gap-1.5 text-foreground">
-                                  <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: modelColor(m) }} />
-                                  {modelShortName(m)}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1.5 text-right" title={fullNumber(t.input)}>{formatTokens(t.input)}</td>
-                              <td className="px-3 py-1.5 text-right" title={fullNumber(t.output)}>{formatTokens(t.output)}</td>
-                              <td className="px-3 py-1.5 text-right" title={fullNumber(t.cache_creation)}>{formatTokens(t.cache_creation)}</td>
-                              <td className="px-3 py-1.5 text-right" title={fullNumber(t.cache_read)}>{formatTokens(t.cache_read)}</td>
-                              <td className="px-3 py-1.5 text-right font-semibold text-foreground" title={fullNumber(t.total)}>{formatTokens(t.total)}</td>
+                    <div>
+                      {hourBuckets.length > 0 && (
+                        <div className="border-t border-border bg-muted/10 px-3 py-2">
+                          <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">By hour ({data?.timezone})</p>
+                          <StackedBars buckets={hourBuckets} models={visibleModels} hideCacheRead={hideCacheRead} percentMode={percentMode} />
+                        </div>
+                      )}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-t border-border text-muted-foreground">
+                              <th className="px-3 py-1.5 text-left font-medium">Model</th>
+                              <th className="px-3 py-1.5 text-right font-medium">input</th>
+                              <th className="px-3 py-1.5 text-right font-medium">output</th>
+                              <th className="px-3 py-1.5 text-right font-medium">cache·crt</th>
+                              <th className="px-3 py-1.5 text-right font-medium">cache·rd</th>
+                              <th className="px-3 py-1.5 text-right font-medium">total</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="tabular-nums">
+                            {modelEntries.map(([m, t]) => (
+                              <tr key={m} className="border-t border-border/50">
+                                <td className="px-3 py-1.5 text-left">
+                                  <span className="flex items-center gap-1.5 text-foreground">
+                                    <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: modelColor(m) }} />
+                                    {modelShortName(m)}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-1.5 text-right" title={fullNumber(t.input)}>{formatTokens(t.input)}</td>
+                                <td className="px-3 py-1.5 text-right" title={fullNumber(t.output)}>{formatTokens(t.output)}</td>
+                                <td className="px-3 py-1.5 text-right" title={fullNumber(t.cache_creation)}>{formatTokens(t.cache_creation)}</td>
+                                <td className="px-3 py-1.5 text-right" title={fullNumber(t.cache_read)}>{formatTokens(t.cache_read)}</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-foreground" title={fullNumber(t.total)}>{formatTokens(t.total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>

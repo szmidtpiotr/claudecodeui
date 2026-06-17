@@ -2,9 +2,11 @@
  * Token-usage statistics repository.
  *
  * Reads Claude's session JSONL logs under ~/.claude/projects/ (including
- * subagent logs) and maintains a durable per-day × model token aggregate
- * in SQLite. Designed around three reliability facts established from real
- * logs:
+ * subagent logs) and maintains a durable token aggregate in SQLite at the
+ * finest granularity we report: local day × local hour × project × model.
+ * Every view (daily, hourly, by-project) is a GROUP BY over usage_agg.
+ *
+ * Designed around three reliability facts established from real logs:
  *
  *   1. Dedup — one assistant turn is written on several JSONL lines that all
  *      repeat the SAME `usage` block. Counting raw lines overcounts ~1.7×.
@@ -15,9 +17,9 @@
  *   3. Synthetic noise — harness-injected messages carry model `<synthetic>`
  *      and zero tokens; they are skipped.
  *
- * The day bucket is the LOCAL calendar day in CLAUDE_USAGE_TZ (default
- * Europe/Warsaw), baked in at scan time. Changing the timezone later does
- * not retroactively re-bucket already-aggregated history.
+ * The day/hour buckets are LOCAL to CLAUDE_USAGE_TZ (default Europe/Warsaw),
+ * baked in at scan time. Changing the timezone later does not retroactively
+ * re-bucket already-aggregated history.
  */
 
 import fs from 'fs';
@@ -32,23 +34,15 @@ const USAGE_TZ = process.env.CLAUDE_USAGE_TZ || 'Europe/Warsaw';
 // Don't re-walk the filesystem more than once per window unless forced.
 const SCAN_THROTTLE_MS = 15_000;
 
-// 'en-CA' formats as YYYY-MM-DD, which is exactly the key we store.
-const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+// 'en-CA' formats the date as YYYY-MM-DD; 'h23' gives a 00–23 hour.
+const partsFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: USAGE_TZ,
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
+  hour: '2-digit',
+  hourCycle: 'h23',
 });
-
-type DailyRow = {
-  date: string;
-  model: string;
-  input: number;
-  output: number;
-  cache_creation: number;
-  cache_read: number;
-  messages: number;
-};
 
 type ModelTotals = {
   input: number;
@@ -59,20 +53,34 @@ type ModelTotals = {
   messages: number;
 };
 
-export type DailyUsage = {
-  date: string;
-  models: Record<string, ModelTotals>;
+export type DailyUsage = { date: string; models: Record<string, ModelTotals> };
+export type HourlyUsage = { hour: number; models: Record<string, ModelTotals> };
+export type ProjectUsage = { project: string; total: number; models: Record<string, ModelTotals> };
+
+type SumRow = {
+  input: number;
+  output: number;
+  cache_creation: number;
+  cache_read: number;
+  messages: number;
 };
 
 let lastScanAt = 0;
 let scanInFlight: Promise<void> | null = null;
 
-/** Local (CLAUDE_USAGE_TZ) calendar day for an ISO timestamp, or null. */
-function localDay(timestamp: unknown): string | null {
+/** Local (CLAUDE_USAGE_TZ) calendar day + hour for an ISO timestamp. */
+function localDayHour(timestamp: unknown): { day: string; hour: number } | null {
   if (typeof timestamp !== 'string') return null;
   const ms = Date.parse(timestamp);
   if (Number.isNaN(ms)) return null;
-  return dayFormatter.format(new Date(ms));
+  const parts = partsFormatter.formatToParts(new Date(ms));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+  const hour = get('hour');
+  if (!year || !month || !day || hour === undefined) return null;
+  return { day: `${year}-${month}-${day}`, hour: Number(hour) };
 }
 
 /** Recursively collect every *.jsonl path under the projects root. */
@@ -93,11 +101,21 @@ function collectJsonlFiles(root: string): string[] {
   return files;
 }
 
+type ParsedLine = {
+  id: string;
+  day: string;
+  hour: number;
+  project: string;
+  model: string;
+  row: SumRow;
+};
+
 /**
- * Parse one JSONL line, returning the countable usage row or null.
- * Skips non-assistant lines, synthetic messages, and anything missing an id.
+ * Parse one JSONL line into a countable usage row, or null. Skips
+ * non-assistant lines, synthetic messages, and anything missing an id.
+ * `fallbackProject` is used when the line carries no `cwd`.
  */
-function parseUsageLine(line: string): { id: string; day: string; model: string; row: Omit<DailyRow, 'date' | 'model'> } | null {
+function parseUsageLine(line: string, fallbackProject: string): ParsedLine | null {
   if (!line) return null;
   let obj: any;
   try {
@@ -112,12 +130,17 @@ function parseUsageLine(line: string): { id: string; day: string; model: string;
   if (!usage || typeof id !== 'string' || typeof model !== 'string') return null;
   if (model.startsWith('<')) return null; // <synthetic> etc.
 
-  const day = localDay(obj?.timestamp);
-  if (!day) return null;
+  const when = localDayHour(obj?.timestamp);
+  if (!when) return null;
+
+  const cwd = obj?.cwd;
+  const project = typeof cwd === 'string' && cwd ? path.basename(cwd) || fallbackProject : fallbackProject;
 
   return {
     id,
-    day,
+    day: when.day,
+    hour: when.hour,
+    project,
     model,
     row: {
       input: usage.input_tokens || 0,
@@ -152,6 +175,11 @@ function scanFile(db: ReturnType<typeof getConnection>, filePath: string): void 
   // against double-counting any ids that reappear).
   if (offset > stat.size) offset = 0;
 
+  // The top-level directory under the projects root identifies the project
+  // when a line has no cwd of its own.
+  const relative = path.relative(USAGE_ROOT, filePath);
+  const fallbackProject = relative.split(path.sep)[0] || 'unknown';
+
   const bytesToRead = stat.size - offset;
   let trailingPartialBytes = 0;
 
@@ -174,10 +202,10 @@ function scanFile(db: ReturnType<typeof getConnection>, filePath: string): void 
       }
 
       const insertSeen = db.prepare('INSERT OR IGNORE INTO usage_seen (msg_id) VALUES (?)');
-      const upsertDaily = db.prepare(`
-        INSERT INTO usage_daily (date, model, input, output, cache_creation, cache_read, messages)
-        VALUES (@date, @model, @input, @output, @cache_creation, @cache_read, @messages)
-        ON CONFLICT (date, model) DO UPDATE SET
+      const upsertAgg = db.prepare(`
+        INSERT INTO usage_agg (date, hour, project, model, input, output, cache_creation, cache_read, messages)
+        VALUES (@date, @hour, @project, @model, @input, @output, @cache_creation, @cache_read, @messages)
+        ON CONFLICT (date, hour, project, model) DO UPDATE SET
           input = input + excluded.input,
           output = output + excluded.output,
           cache_creation = cache_creation + excluded.cache_creation,
@@ -187,11 +215,17 @@ function scanFile(db: ReturnType<typeof getConnection>, filePath: string): void 
 
       const applyBatch = db.transaction((rawLines: string[]) => {
         for (const line of rawLines) {
-          const parsed = parseUsageLine(line);
+          const parsed = parseUsageLine(line, fallbackProject);
           if (!parsed) continue;
           // Only count a message the first time we ever see its id.
           if (insertSeen.run(parsed.id).changes === 0) continue;
-          upsertDaily.run({ date: parsed.day, model: parsed.model, ...parsed.row });
+          upsertAgg.run({
+            date: parsed.day,
+            hour: parsed.hour,
+            project: parsed.project,
+            model: parsed.model,
+            ...parsed.row,
+          });
         }
       });
       applyBatch(lines);
@@ -216,7 +250,7 @@ function scanFile(db: ReturnType<typeof getConnection>, filePath: string): void 
   });
 }
 
-/** Incrementally fold any new log bytes into usage_daily. Throttled. */
+/** Incrementally fold any new log bytes into usage_agg. Throttled. */
 export async function scanUsage(force = false): Promise<void> {
   if (!force && Date.now() - lastScanAt < SCAN_THROTTLE_MS) return;
   if (scanInFlight) return scanInFlight;
@@ -242,45 +276,94 @@ export async function scanUsage(force = false): Promise<void> {
   }
 }
 
+function toTotals(r: SumRow): ModelTotals {
+  return {
+    input: r.input,
+    output: r.output,
+    cache_creation: r.cache_creation,
+    cache_read: r.cache_read,
+    total: r.input + r.output + r.cache_creation + r.cache_read,
+    messages: r.messages,
+  };
+}
+
+const SUM_COLS = `
+  SUM(input) AS input,
+  SUM(output) AS output,
+  SUM(cache_creation) AS cache_creation,
+  SUM(cache_read) AS cache_read,
+  SUM(messages) AS messages
+`;
+
+function dateRange(from?: string, to?: string): { whereSql: string; params: string[] } {
+  const where: string[] = [];
+  const params: string[] = [];
+  if (from) { where.push('date >= ?'); params.push(from); }
+  if (to) { where.push('date <= ?'); params.push(to); }
+  return { whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+}
+
 export const usageStatsDb = {
   scan: scanUsage,
 
-  /**
-   * Per-day × model token totals, newest day first. `from`/`to` are
-   * inclusive YYYY-MM-DD bounds (omit for all history).
-   */
+  /** Per-day × model totals, newest day first. */
   getDaily(from?: string, to?: string): DailyUsage[] {
     const db = getConnection();
-    const where: string[] = [];
-    const params: string[] = [];
-    if (from) { where.push('date >= ?'); params.push(from); }
-    if (to) { where.push('date <= ?'); params.push(to); }
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
+    const { whereSql, params } = dateRange(from, to);
     const rows = db
-      .prepare(`SELECT * FROM usage_daily ${whereSql} ORDER BY date DESC, model ASC`)
-      .all(...params) as DailyRow[];
+      .prepare(`SELECT date, model, ${SUM_COLS} FROM usage_agg ${whereSql} GROUP BY date, model ORDER BY date DESC, model ASC`)
+      .all(...params) as (SumRow & { date: string; model: string })[];
 
     const byDay = new Map<string, DailyUsage>();
     for (const r of rows) {
       let day = byDay.get(r.date);
-      if (!day) {
-        day = { date: r.date, models: {} };
-        byDay.set(r.date, day);
-      }
-      day.models[r.model] = {
-        input: r.input,
-        output: r.output,
-        cache_creation: r.cache_creation,
-        cache_read: r.cache_read,
-        total: r.input + r.output + r.cache_creation + r.cache_read,
-        messages: r.messages,
-      };
+      if (!day) { day = { date: r.date, models: {} }; byDay.set(r.date, day); }
+      day.models[r.model] = toTotals(r);
     }
     return [...byDay.values()];
   },
 
-  /** Timezone the day buckets are computed in (for UI display). */
+  /** Per-hour × model totals for one day (00–23, ascending). */
+  getHourly(date: string): HourlyUsage[] {
+    const db = getConnection();
+    const rows = db
+      .prepare(`SELECT hour, model, ${SUM_COLS} FROM usage_agg WHERE date = ? GROUP BY hour, model ORDER BY hour ASC`)
+      .all(date) as (SumRow & { hour: number; model: string })[];
+
+    const byHour = new Map<number, HourlyUsage>();
+    for (const r of rows) {
+      let h = byHour.get(r.hour);
+      if (!h) { h = { hour: r.hour, models: {} }; byHour.set(r.hour, h); }
+      h.models[r.model] = toTotals(r);
+    }
+    return [...byHour.values()];
+  },
+
+  /** Per-project × model totals over a date range, biggest project first. */
+  getProjects(from?: string, to?: string): ProjectUsage[] {
+    const db = getConnection();
+    const { whereSql, params } = dateRange(from, to);
+    const rows = db
+      .prepare(`SELECT project, model, ${SUM_COLS} FROM usage_agg ${whereSql} GROUP BY project, model`)
+      .all(...params) as (SumRow & { project: string; model: string })[];
+
+    const byProject = new Map<string, ProjectUsage>();
+    for (const r of rows) {
+      let p = byProject.get(r.project);
+      if (!p) { p = { project: r.project, total: 0, models: {} }; byProject.set(r.project, p); }
+      const t = toTotals(r);
+      p.models[r.model] = t;
+      p.total += t.total;
+    }
+    return [...byProject.values()].sort((a, b) => b.total - a.total);
+  },
+
+  /** ISO timestamp of the last completed scan, or null if none yet. */
+  lastScanAt(): string | null {
+    return lastScanAt ? new Date(lastScanAt).toISOString() : null;
+  },
+
+  /** Timezone the buckets are computed in (for UI display). */
   timezone(): string {
     return USAGE_TZ;
   },
