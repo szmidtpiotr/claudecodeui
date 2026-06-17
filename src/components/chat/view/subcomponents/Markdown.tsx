@@ -190,7 +190,7 @@ const markdownComponents = {
   ),
 };
 
-export function Markdown({ children, className, projectId }: MarkdownProps) {
+function MarkdownImpl({ children, className, projectId }: MarkdownProps) {
   const raw = normalizeInlineCodeFences(String(children ?? ''));
   const content = useMemo(
     () => (projectId ? transformImagePathsToMarkdown(raw, projectId) : raw),
@@ -207,3 +207,9 @@ export function Markdown({ children, className, projectId }: MarkdownProps) {
     </div>
   );
 }
+
+// Memoized: ReactMarkdown re-parses (micromark tokenize -> AST -> JSX) on every
+// render. Without this, a keystroke in the chat composer re-renders every message
+// bubble and re-parses all their markdown (~200ms/keystroke on long sessions).
+// Props are primitives/stable strings, so shallow compare skips the parse while typing.
+export const Markdown = React.memo(MarkdownImpl);

@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+// Hoisted so the array identity is stable across renders (inline `[remarkGfm]`
+// would force ReactMarkdown to treat plugins as changed every render).
+const NOTEBOOK_REMARK_PLUGINS = [remarkGfm];
 import {
   Bold, BookOpen, ChevronDown, ChevronRight, Code, Edit3,
   Eye, GripVertical, Heading1, Heading2, Heading3,
@@ -68,7 +72,7 @@ type NotebookPanelViewProps = {
   projectId: string | null;
 };
 
-export default function NotebookPanelView({ projectId }: NotebookPanelViewProps) {
+function NotebookPanelView({ projectId }: NotebookPanelViewProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
@@ -327,7 +331,11 @@ export default function NotebookPanelView({ projectId }: NotebookPanelViewProps)
               />
             ) : content ? (
               <div className="prose prose-sm dark:prose-invert h-full overflow-y-auto p-4 max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                {/* Only parse/render the (potentially huge) markdown while the panel
+                    is actually open — when closed it is hidden off-screen anyway. */}
+                {isOpen ? (
+                  <ReactMarkdown remarkPlugins={NOTEBOOK_REMARK_PLUGINS}>{content}</ReactMarkdown>
+                ) : null}
               </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground">
@@ -356,3 +364,9 @@ export default function NotebookPanelView({ projectId }: NotebookPanelViewProps)
     </>
   );
 }
+
+// Memoized: NotebookPanel is permanently mounted inside ChatInterface, which
+// re-renders on every keystroke in the chat composer. Without memo, this panel
+// re-rendered each keystroke and its ReactMarkdown re-parsed the entire notes
+// file (~100KB -> ~245ms/keystroke). `projectId` is the only prop and is stable.
+export default memo(NotebookPanelView);
