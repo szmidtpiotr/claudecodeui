@@ -156,6 +156,8 @@ export default function UsageStatsTab() {
   const [hideCacheRead, setHideCacheRead] = useState(false);
   const [percentMode, setPercentMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Models toggled off via the legend — excluded from the chart and the Σ.
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
@@ -194,10 +196,30 @@ export default function UsageStatsTab() {
     return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
   }, [days]);
 
+  // Legend-visible models, in the same volume order.
+  const visibleModels = useMemo(() => models.filter((m) => !hidden.has(m)), [models, hidden]);
+
   const grandTotal = useMemo(
-    () => days.reduce((sum, d) => sum + Object.values(d.models).reduce((s, m) => s + modelTotal(m, hideCacheRead), 0), 0),
-    [days, hideCacheRead],
+    () =>
+      days.reduce(
+        (sum, d) =>
+          sum +
+          Object.entries(d.models).reduce(
+            (s, [m, t]) => (hidden.has(m) ? s : s + modelTotal(t, hideCacheRead)),
+            0,
+          ),
+        0,
+      ),
+    [days, hideCacheRead, hidden],
   );
+
+  const toggleModel = (model: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      return next;
+    });
 
   const toggleDay = (date: string) =>
     setExpanded((prev) => {
@@ -268,14 +290,28 @@ export default function UsageStatsTab() {
 
           {/* Chart */}
           <div className="rounded-lg border border-border bg-muted/20 p-3">
-            <StackedBarChart days={days} models={models} hideCacheRead={hideCacheRead} percentMode={percentMode} />
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-              {models.map((m) => (
-                <span key={m} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: modelColor(m) }} />
-                  {modelShortName(m)}
-                </span>
-              ))}
+            <StackedBarChart days={days} models={visibleModels} hideCacheRead={hideCacheRead} percentMode={percentMode} />
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+              {models.map((m) => {
+                const isHidden = hidden.has(m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => toggleModel(m)}
+                    title={isHidden ? 'Click to show' : 'Click to hide'}
+                    className={`flex items-center gap-1.5 rounded px-1 text-[11px] transition-opacity hover:bg-muted/50 ${
+                      isHidden ? 'text-muted-foreground/50 line-through' : 'text-muted-foreground'
+                    }`}
+                  >
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-sm"
+                      style={{ backgroundColor: isHidden ? 'transparent' : modelColor(m), border: `1.5px solid ${modelColor(m)}` }}
+                    />
+                    {modelShortName(m)}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
