@@ -101,6 +101,21 @@ function collectJsonlFiles(root: string): string[] {
   return files;
 }
 
+/**
+ * Project name for a session's working directory. Sessions often `cd` into
+ * sub-folders (frontend, tests, …), so basename(cwd) would scatter one
+ * project across many buckets. Instead we take the path segment right after
+ * a `projects/` ancestor (the usual `<home>/projects/<PROJECT>` layout);
+ * failing that, the deepest folder name.
+ */
+function projectFromCwd(cwd: unknown, fallback: string): string {
+  if (typeof cwd !== 'string' || !cwd) return fallback;
+  const parts = cwd.split('/').filter(Boolean);
+  const i = parts.lastIndexOf('projects');
+  if (i >= 0 && i + 1 < parts.length) return parts[i + 1];
+  return parts[parts.length - 1] || fallback;
+}
+
 type ParsedLine = {
   id: string;
   day: string;
@@ -133,8 +148,7 @@ function parseUsageLine(line: string, fallbackProject: string): ParsedLine | nul
   const when = localDayHour(obj?.timestamp);
   if (!when) return null;
 
-  const cwd = obj?.cwd;
-  const project = typeof cwd === 'string' && cwd ? path.basename(cwd) || fallbackProject : fallbackProject;
+  const project = projectFromCwd(obj?.cwd, fallbackProject);
 
   return {
     id,

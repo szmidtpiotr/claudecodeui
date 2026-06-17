@@ -100,17 +100,22 @@ function StackedBars({
       className="h-[178px] w-full"
       preserveAspectRatio="xMidYMax meet"
     >
+      {/* zero baseline */}
+      <line x1={0} y1={H} x2={Math.max(W, 320)} y2={H} className="stroke-border" strokeWidth={1} />
       {buckets.map((b, i) => {
         const x = colGap + i * (colW + colGap);
         const total = totals[i];
+        // Bars are anchored to the y=H baseline. Segment height is scaled to
+        // maxTotal (so bar heights are comparable) or to the bar's own total
+        // in % mode (so every bar fills H).
         const scaleTotal = percentMode ? total || 1 : maxTotal;
-        const barH = percentMode ? (total > 0 ? H : 0) : (total / maxTotal) * H;
+        const barH = (total / scaleTotal) * H;
         let yCursor = H - barH;
         const segments = models
           .filter((m) => b.models[m])
           .map((m) => {
             const val = modelTotal(b.models[m], hideCacheRead);
-            const segH = scaleTotal > 0 ? (val / scaleTotal) * barH : 0;
+            const segH = scaleTotal > 0 ? (val / scaleTotal) * H : 0;
             const seg = { m, y: yCursor, h: segH, val };
             yCursor += segH;
             return seg;

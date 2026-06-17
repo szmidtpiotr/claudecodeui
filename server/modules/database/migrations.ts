@@ -467,14 +467,24 @@ export const runMigrations = (db: Database) => {
 
     db.exec(LAST_SCANNED_AT_SQL);
     db.exec(USAGE_STATS_SCHEMA_SQL);
-    // The original usage feature aggregated only by day×model. The table is
-    // now day×hour×project×model, so drop the legacy table and reset the scan
-    // cursors — the next scan rebuilds the finer aggregate from the logs.
-    if (tableExists(db, 'usage_daily')) {
-      console.log('Running migration: Rebuilding usage stats at hour/project granularity');
-      db.exec('DROP TABLE usage_daily');
+    // Usage-stats aggregate shape has changed over time (day×model →
+    // day×hour×project×model, then a project-keying fix). Whenever the shape
+    // changes we bump USAGE_SCHEMA_VERSION, wipe the derived tables and reset
+    // the scan cursors so the next scan rebuilds everything from the logs.
+    const USAGE_SCHEMA_VERSION = '3';
+    const usageVer = db
+      .prepare(`SELECT value FROM app_config WHERE key = 'usage_schema_version'`)
+      .get() as { value: string } | undefined;
+    if (!usageVer || usageVer.value !== USAGE_SCHEMA_VERSION) {
+      console.log('Running migration: Rebuilding usage stats aggregate');
+      if (tableExists(db, 'usage_daily')) db.exec('DROP TABLE usage_daily');
+      db.exec('DELETE FROM usage_agg');
       db.exec('DELETE FROM usage_files');
       db.exec('DELETE FROM usage_seen');
+      db.prepare(
+        `INSERT INTO app_config (key, value) VALUES ('usage_schema_version', ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      ).run(USAGE_SCHEMA_VERSION);
     }
     console.log('Database migrations completed successfully');
   } catch (error: any) {
