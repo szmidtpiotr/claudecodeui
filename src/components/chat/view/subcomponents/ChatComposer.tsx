@@ -104,7 +104,7 @@ interface ChatComposerProps {
   placeholder: string;
   isTextareaExpanded: boolean;
   sendByCtrlEnter?: boolean;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
   currentModel: string;
   onModelChange: (model: string) => void;
   modelCatalogOptions?: { value: string; label: string; description?: string }[];

@@ -96,7 +96,8 @@
     "tasks": "Görevler",
     "notifications": "Bildirimler",
     "plugins": "Eklentiler",
-    "about": "Hakkında"
+    "about": "Hakkında",
+    "stats": "Kullanım"
   },
   "notifications": {
     "title": "Bildirimler",

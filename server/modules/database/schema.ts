@@ -103,6 +103,39 @@ CREATE TABLE IF NOT EXISTS scan_state (
 );
 `;
 
+// Token-usage statistics. Populated by an incremental scan of Claude's
+// session JSONL logs (~/.claude/projects/**/*.jsonl).
+//
+//  - usage_files: per-file read cursor so each byte is parsed exactly once.
+//  - usage_seen: every counted message id, so re-scans never double-count
+//    (one assistant turn is logged on multiple lines with the SAME usage
+//    block — 51 raw lines collapsed to 30 unique ids in a sampled log).
+//  - usage_daily: the durable aggregate, keyed by local calendar day ×
+//    model. Survives deletion/rotation of the source logs.
+export const USAGE_STATS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS usage_files (
+    path TEXT PRIMARY KEY,
+    mtime_ms INTEGER NOT NULL DEFAULT 0,
+    size INTEGER NOT NULL DEFAULT 0,
+    byte_offset INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS usage_seen (
+    msg_id TEXT PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS usage_daily (
+    date TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input INTEGER NOT NULL DEFAULT 0,
+    output INTEGER NOT NULL DEFAULT 0,
+    cache_creation INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    messages INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, model)
+);
+`;
+
 export const APP_CONFIG_TABLE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
@@ -156,6 +189,8 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 -- Creating it here can fail on upgraded installs where the legacy sessions table has no project_path.
 
 ${LAST_SCANNED_AT_SQL}
+
+${USAGE_STATS_SCHEMA_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 

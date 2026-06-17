@@ -11,6 +11,7 @@ import NotificationsSettingsTab from '../view/tabs/NotificationsSettingsTab';
 import TasksSettingsTab from '../view/tabs/tasks-settings/TasksSettingsTab';
 import PluginSettingsTab from '../../plugins/view/PluginSettingsTab';
 import VoiceSettingsTab from '../view/tabs/VoiceSettingsTab';
+import UsageStatsTab from '../view/tabs/UsageStatsTab';
 import AboutTab from '../view/tabs/AboutTab';
 import { useSettingsController } from '../hooks/useSettingsController';
 import { useWebPush } from '../../../hooks/useWebPush';
@@ -157,6 +158,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'agents' }: Set
               {activeTab === 'plugins' && <PluginSettingsTab />}
 
               {activeTab === 'voice' && <VoiceSettingsTab />}
+
+              {activeTab === 'stats' && <UsageStatsTab />}
 
               {activeTab === 'about' && <AboutTab />}
             </div>

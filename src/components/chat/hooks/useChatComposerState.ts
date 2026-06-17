@@ -74,7 +74,7 @@ interface UseChatComposerStateArgs {
   onSessionProcessing?: (sessionId?: string | null) => void;
   onInputFocusChange?: (focused: boolean) => void;
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
-  onShowSettings?: () => void;
+  onShowSettings?: (tab?: string) => void;
   pendingViewSessionRef: { current: PendingViewSession | null };
   scrollToBottom: () => void;
   chatMessages: ChatMessage[];

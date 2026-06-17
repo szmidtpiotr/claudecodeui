@@ -202,7 +202,7 @@ function AppContentInner() {
           onNavigateToSession={(targetSessionId: string, options) =>
             navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
           }
-          onShowSettings={() => setShowSettings(true)}
+          onShowSettings={(tab?: string) => (tab ? openSettings(tab) : setShowSettings(true))}
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
           onNewSession={handleNewSession}

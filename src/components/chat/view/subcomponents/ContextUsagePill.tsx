@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { BarChart2, RefreshCw, X } from 'lucide-react';
+
 import { authenticatedFetch } from '../../../../utils/api';
 
 type Bucket = {
@@ -20,7 +21,7 @@ type ContextUsagePillProps = {
   used: number;
   total: number;
   provider: string;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
 };
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -214,7 +215,7 @@ export default function ContextUsagePill({ used, total, provider, onOpenSettings
             <ProgressBar pct={ctxPct} />
             <div className="flex items-center justify-between text-xs">
               <span className={`font-medium tabular-nums ${pctColor(ctxPct)}`}>{ctxPct.toFixed(1)}% used</span>
-              <span className="text-muted-foreground tabular-nums">
+              <span className="tabular-nums text-muted-foreground">
                 {used.toLocaleString()} / {total.toLocaleString()}
               </span>
             </div>
@@ -304,7 +305,17 @@ export default function ContextUsagePill({ used, total, provider, onOpenSettings
           )}
 
           {/* Footer note */}
-          <div className="border-t border-border/50 bg-muted/30 px-3 py-2">
+          <div className="space-y-1.5 border-t border-border/50 bg-muted/30 px-3 py-2">
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={() => { closePopup(); onOpenSettings('stats'); }}
+                className="flex w-full items-center justify-between text-[11px] font-medium text-blue-500 hover:text-blue-400 dark:text-blue-400"
+              >
+                Token history & daily stats
+                <span aria-hidden>→</span>
+              </button>
+            )}
             <p className="text-[10px] text-muted-foreground/60">
               For per-category breakdown, run <code className="rounded bg-muted px-1">/context</code> in Claude CLI
             </p>

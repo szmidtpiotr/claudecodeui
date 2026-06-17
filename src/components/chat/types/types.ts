@@ -116,7 +116,7 @@ export interface ChatInterfaceProps {
   onSessionNotProcessing?: (sessionId?: string | null) => void;
   processingSessions?: Set<string>;
   onNavigateToSession?: (targetSessionId: string, options?: SessionNavigationOptions) => void;
-  onShowSettings?: () => void;
+  onShowSettings?: (tab?: string) => void;
   autoExpandTools?: boolean;
   collapseToolsByDefault?: boolean;
   showRawParameters?: boolean;

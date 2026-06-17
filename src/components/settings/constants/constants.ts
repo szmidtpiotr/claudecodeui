@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import {
+  BarChart3,
   Bell,
   Bot,
   GitBranch,
@@ -34,6 +35,7 @@ export const SETTINGS_MAIN_TABS: SettingsMainTabMeta[] = [
   { id: 'tasks', label: 'Tasks', keywords: 'tasks taskmaster', icon: ListChecks },
   { id: 'notifications', label: 'Notifications', keywords: 'notifications alerts push', icon: Bell },
   { id: 'plugins', label: 'Plugins', keywords: 'plugins extensions integrations', icon: Plug },
+  { id: 'stats', label: 'Usage Stats', keywords: 'usage tokens statistics stats daily models', icon: BarChart3 },
   { id: 'about', label: 'About', keywords: 'about version info', icon: Info },
 ];
 

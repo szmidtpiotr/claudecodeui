@@ -95,7 +95,8 @@
     "apiTokens": "API & Token",
     "tasks": "Aufgaben",
     "plugins": "Plugins",
-    "about": "Info"
+    "about": "Info",
+    "stats": "Nutzung"
   },
   "appearanceSettings": {
     "darkMode": {

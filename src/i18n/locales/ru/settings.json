@@ -95,7 +95,8 @@
     "apiTokens": "API и токены",
     "tasks": "Задачи",
     "plugins": "Плагины",
-    "about": "О программе"
+    "about": "О программе",
+    "stats": "Статистика"
   },
   "appearanceSettings": {
     "darkMode": {

@@ -63,10 +63,9 @@
     "showRawParameters": "Show raw parameters",
     "showThinking": "Show thinking",
     "showCompactSummaries": "Show compact summaries",
-    "collapseErrorResults": "Collapse error results by default",
+    "collapseErrorResults": "Auto-collapse error results",
     "autoScrollToBottom": "Auto-scroll to bottom",
     "showImageThumbnails": "Image thumbnails in chat",
-    "collapseErrorResults": "Auto-collapse error results",
     "sendByCtrlEnter": "Send by Ctrl+Enter",
     "sendByCtrlEnterDescription": "When enabled, pressing Ctrl+Enter will send the message instead of just Enter. This is useful for IME users to avoid accidental sends.",
     "dragHandle": {
@@ -102,6 +101,7 @@
     "notifications": "Notifications",
     "plugins": "Plugins",
     "voice": "Voice",
+    "stats": "Usage Stats",
     "about": "About"
   },
   "notifications": {

@@ -96,7 +96,8 @@
     "tasks": "タスク",
     "notifications": "通知",
     "plugins": "プラグイン",
-    "about": "概要"
+    "about": "概要",
+    "stats": "使用状況"
   },
   "notifications": {
     "title": "通知",

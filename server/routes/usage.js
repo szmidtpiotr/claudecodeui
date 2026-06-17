@@ -1,8 +1,26 @@
 import express from 'express';
-import { credentialsDb } from '../modules/database/index.js';
+
+import { credentialsDb, usageStatsDb } from '../modules/database/index.js';
 import { getClaudeUsage } from '../services/claudeUsageService.js';
 
 const router = express.Router();
+
+// GET /daily — per-day × model token totals from local session logs.
+// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&refresh=1 (all optional).
+router.get('/daily', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    await usageStatsDb.scan(req.query.refresh === '1');
+    res.json({
+      success: true,
+      timezone: usageStatsDb.timezone(),
+      days: usageStatsDb.getDaily(from, to),
+    });
+  } catch (error) {
+    console.error('Error building daily usage stats:', error);
+    res.status(500).json({ error: 'Failed to build daily usage stats' });
+  }
+});
 
 router.get('/claude', async (req, res) => {
   try {

@@ -96,7 +96,8 @@
     "tasks": "Attività",
     "notifications": "Notifiche",
     "plugins": "Plugin",
-    "about": "Informazioni"
+    "about": "Informazioni",
+    "stats": "Utilizzo"
   },
   "notifications": {
     "title": "Notifiche",
