@@ -32,6 +32,8 @@ type SidebarProjectSessionsProps = {
   ) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
+  pinnedSessionIds: Set<string>;
+  onTogglePin: (sessionId: string) => void;
   t: TFunction;
 };
 
@@ -73,6 +75,8 @@ export default function SidebarProjectSessions({
   onDeleteSession,
   onLoadMoreSessions,
   onNewSession,
+  pinnedSessionIds,
+  onTogglePin,
   t,
 }: SidebarProjectSessionsProps) {
   if (!isExpanded) {
@@ -80,6 +84,15 @@ export default function SidebarProjectSessions({
   }
 
   const hasSessions = sessions.length > 0;
+
+  const sortedSessions = [...sessions].sort((a, b) => {
+    const aPinned = pinnedSessionIds.has(a.id);
+    const bPinned = pinnedSessionIds.has(b.id);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    const aTime = a.lastActivity || a.updated_at || a.createdAt || a.created_at || '';
+    const bTime = b.lastActivity || b.updated_at || b.createdAt || b.created_at || '';
+    return bTime.localeCompare(aTime);
+  });
 
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
@@ -114,7 +127,7 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          {sessions.map((session) => (
+          {sortedSessions.map((session) => (
             <SidebarSessionItem
               key={session.id}
               project={project}
@@ -130,6 +143,8 @@ export default function SidebarProjectSessions({
               onProjectSelect={onProjectSelect}
               onSessionSelect={onSessionSelect}
               onDeleteSession={onDeleteSession}
+              isPinned={pinnedSessionIds.has(session.id)}
+              onTogglePin={onTogglePin}
               t={t}
             />
           ))}

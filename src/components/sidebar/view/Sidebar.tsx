@@ -53,7 +53,7 @@ function Sidebar({
   const { setCurrentProject, mcpServerStatus } = useTaskMaster() as TaskMasterSidebarContext;
   const { tasksEnabled } = useTasksSettings();
   const paletteOps = usePaletteOps();
-  const { unreadEntries, unreadCount, markRead, togglePin } = useUnreadSessions(projects);
+  const { unreadEntries, unreadCount, markRead, togglePin, pinnedSessionIds } = useUnreadSessions(projects);
 
   const {
     isSidebarCollapsed,
@@ -206,6 +206,8 @@ function Sidebar({
     onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => {
       void updateSessionSummary(projectName, sessionId, summary, provider);
     },
+    pinnedSessionIds,
+    onTogglePin: togglePin,
     t,
   };
 

@@ -91,5 +91,5 @@ export function useUnreadSessions(projects: Project[]) {
     return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
   });
 
-  return { unreadEntries, unreadCount: unreadEntries.length, markRead, togglePin };
+  return { unreadEntries, unreadCount: unreadEntries.length, markRead, togglePin, pinnedSessionIds: getPins() };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Edit2, Trash2, X } from 'lucide-react';
+import { Check, Edit2, Pin, PinOff, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip } from '../../../../shared/view/ui';
@@ -28,6 +28,8 @@ type SidebarSessionItemProps = {
     sessionTitle: string,
     provider: LLMProvider,
   ) => void;
+  isPinned: boolean;
+  onTogglePin: (sessionId: string) => void;
   t: TFunction;
 };
 
@@ -73,6 +75,8 @@ export default function SidebarSessionItem({
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
+  isPinned,
+  onTogglePin,
   t,
 }: SidebarSessionItemProps) {
   const sessionView = createSessionViewModel(session, currentTime, t);
@@ -200,7 +204,7 @@ export default function SidebarSessionItem({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
+                <div className={cn("truncate text-xs font-medium", isPinned ? "text-amber-400" : "text-foreground")}>{sessionView.sessionName}</div>
                 {compactSessionAge && (
                   <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
                 )}
@@ -214,6 +218,22 @@ export default function SidebarSessionItem({
               </div>
             </div>
 
+            <button
+              className={cn(
+                "ml-1 flex h-5 w-5 items-center justify-center rounded-md opacity-70 transition-transform active:scale-95",
+                isPinned ? "bg-amber-50 dark:bg-amber-900/20" : "bg-gray-50 dark:bg-gray-900/20"
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTogglePin(session.id);
+              }}
+            >
+              {isPinned ? (
+                <PinOff className="h-2.5 w-2.5 text-amber-600 dark:text-amber-400" />
+              ) : (
+                <Pin className="h-2.5 w-2.5 text-gray-600 dark:text-gray-400" />
+              )}
+            </button>
             {!sessionView.isCursorSession && (
               <button
                 className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
@@ -275,7 +295,7 @@ export default function SidebarSessionItem({
             <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
+                <div className={cn("truncate text-xs font-medium", isPinned ? "text-amber-400" : "text-foreground")}>{sessionView.sessionName}</div>
                 {compactSessionAge && (
                   <span
                     className={cn(
@@ -342,6 +362,25 @@ export default function SidebarSessionItem({
               </>
             ) : (
               <>
+                <button
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                    isPinned
+                      ? "bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40"
+                      : "bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onTogglePin(session.id);
+                  }}
+                  title={isPinned ? t('unread.unpin', 'Unpin session') : t('unread.pin', 'Pin to top')}
+                >
+                  {isPinned ? (
+                    <PinOff className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                  ) : (
+                    <Pin className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  )}
+                </button>
                 <button
                   className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
                   onClick={(event) => {
