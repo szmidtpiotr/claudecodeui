@@ -193,94 +193,65 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
     void loadProviderModels();
   }, [loadProviderModels]);
 
-  const pickStoredOrCurrent = (
-    storageKey: string,
+  // Resolve which model a provider should show, preferring (in order):
+  // the per-session choice (`<provider>-model-<sessionId>`), the global last-used
+  // default (`<provider>-model`), the current value, then the catalog default.
+  // The per-session key makes model selection sticky per session instead of
+  // shared across every session of the project.
+  const reconcileModel = useCallback((
+    modelProvider: LLMProvider,
+    def: ProviderModelsDefinition | undefined,
     current: string,
-    def: ProviderModelsDefinition,
-  ): string => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored && def.OPTIONS.some((o) => o.value === stored)) {
-      return stored;
+    setModel: (model: string) => void,
+    sessionId?: string | null,
+  ) => {
+    if (!def) {
+      return;
     }
-    if (current && def.OPTIONS.some((o) => o.value === current)) {
-      return current;
+    const valid = (model: string | null): model is string =>
+      !!model && def.OPTIONS.some((o) => o.value === model);
+
+    const sessionStored = sessionId ? localStorage.getItem(`${modelProvider}-model-${sessionId}`) : null;
+    if (valid(sessionStored)) {
+      if (sessionStored !== current) {
+        setModel(sessionStored);
+      }
+      return;
     }
-    return def.DEFAULT;
-  };
+
+    const stored = localStorage.getItem(`${modelProvider}-model`);
+    const next = valid(stored) ? stored : valid(current) ? current : def.DEFAULT;
+    if (localStorage.getItem(`${modelProvider}-model`) !== next) {
+      localStorage.setItem(`${modelProvider}-model`, next);
+    }
+    if (next !== current) {
+      setModel(next);
+    }
+  }, []);
 
   useEffect(() => {
-    const claude = providerModelCatalog.claude;
-    if (claude) {
-      const next = pickStoredOrCurrent('claude-model', claudeModel, claude);
-      if (next !== claudeModel) {
-        setClaudeModel(next);
-      }
-      if (localStorage.getItem('claude-model') !== next) {
-        localStorage.setItem('claude-model', next);
-      }
-    }
-  }, [providerModelCatalog.claude, claudeModel]);
+    reconcileModel('claude', providerModelCatalog.claude, claudeModel, setClaudeModel, selectedSession?.id);
+  }, [providerModelCatalog.claude, claudeModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    const cursor = providerModelCatalog.cursor;
-    if (cursor) {
-      const next = pickStoredOrCurrent('cursor-model', cursorModel, cursor);
-      if (next !== cursorModel) {
-        setCursorModel(next);
-      }
-      if (localStorage.getItem('cursor-model') !== next) {
-        localStorage.setItem('cursor-model', next);
-      }
-    }
-  }, [providerModelCatalog.cursor, cursorModel]);
+    reconcileModel('cursor', providerModelCatalog.cursor, cursorModel, setCursorModel, selectedSession?.id);
+  }, [providerModelCatalog.cursor, cursorModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    const codex = providerModelCatalog.codex;
-    if (codex) {
-      const next = pickStoredOrCurrent('codex-model', codexModel, codex);
-      if (next !== codexModel) {
-        setCodexModel(next);
-      }
-      if (localStorage.getItem('codex-model') !== next) {
-        localStorage.setItem('codex-model', next);
-      }
-    }
-  }, [providerModelCatalog.codex, codexModel]);
+    reconcileModel('codex', providerModelCatalog.codex, codexModel, setCodexModel, selectedSession?.id);
+  }, [providerModelCatalog.codex, codexModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    const gemini = providerModelCatalog.gemini;
-    if (gemini) {
-      const next = pickStoredOrCurrent('gemini-model', geminiModel, gemini);
-      if (next !== geminiModel) {
-        setGeminiModel(next);
-      }
-      if (localStorage.getItem('gemini-model') !== next) {
-        localStorage.setItem('gemini-model', next);
-      }
-    }
-  }, [providerModelCatalog.gemini, geminiModel]);
+    reconcileModel('gemini', providerModelCatalog.gemini, geminiModel, setGeminiModel, selectedSession?.id);
+  }, [providerModelCatalog.gemini, geminiModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    const opencode = providerModelCatalog.opencode;
-    if (opencode) {
-      const next = pickStoredOrCurrent('opencode-model', opencodeModel, opencode);
-      if (next !== opencodeModel) {
-        setOpenCodeModel(next);
-      }
-      if (localStorage.getItem('opencode-model') !== next) {
-        localStorage.setItem('opencode-model', next);
-      }
-    }
-  }, [providerModelCatalog.opencode, opencodeModel]);
+    reconcileModel('opencode', providerModelCatalog.opencode, opencodeModel, setOpenCodeModel, selectedSession?.id);
+  }, [providerModelCatalog.opencode, opencodeModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    const azure = providerModelCatalog.azure;
-    if (azure) {
-      const next = pickStoredOrCurrent('azure-model', azureModel, azure);
-      if (next !== azureModel) setAzureModel(next);
-      if (localStorage.getItem('azure-model') !== next) localStorage.setItem('azure-model', next);
-    }
-  }, [providerModelCatalog.azure, azureModel]);
+    reconcileModel('azure', providerModelCatalog.azure, azureModel, setAzureModel, selectedSession?.id);
+  }, [providerModelCatalog.azure, azureModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
     if (!selectedSession?.id) {

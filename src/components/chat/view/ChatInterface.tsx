@@ -487,13 +487,20 @@ function ChatInterface({
   }, [setAttachedImages]);
 
   const handleModelChange = useCallback((model: string) => {
-    if (provider === 'cursor') { setCursorModel(model); localStorage.setItem('cursor-model', model); }
-    else if (provider === 'codex') { setCodexModel(model); localStorage.setItem('codex-model', model); }
-    else if (provider === 'gemini') { setGeminiModel(model); localStorage.setItem('gemini-model', model); }
-    else if (provider === 'opencode') { setOpenCodeModel(model); localStorage.setItem('opencode-model', model); }
-    else if (provider === 'azure') { setAzureModel(model); localStorage.setItem('azure-model', model); }
-    else { setClaudeModel(model); localStorage.setItem('claude-model', model); }
-  }, [provider, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel, setClaudeModel]);
+    const sid = currentSessionId || selectedSession?.id || null;
+    // Persist both the global last-used default (so new sessions inherit it) and
+    // a per-session key so each session keeps its own model choice.
+    const persist = (key: string) => {
+      localStorage.setItem(`${key}-model`, model);
+      if (sid) localStorage.setItem(`${key}-model-${sid}`, model);
+    };
+    if (provider === 'cursor') { setCursorModel(model); persist('cursor'); }
+    else if (provider === 'codex') { setCodexModel(model); persist('codex'); }
+    else if (provider === 'gemini') { setGeminiModel(model); persist('gemini'); }
+    else if (provider === 'opencode') { setOpenCodeModel(model); persist('opencode'); }
+    else if (provider === 'azure') { setAzureModel(model); persist('azure'); }
+    else { setClaudeModel(model); persist('claude'); }
+  }, [provider, currentSessionId, selectedSession?.id, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel, setClaudeModel]);
 
   const handleTogglePromptNav = useCallback(() => setShowPromptNav((v) => !v), []);
 

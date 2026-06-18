@@ -12,7 +12,7 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
-import { type EffortLevel, DEFAULT_EFFORT, getEffortPrefix } from '../view/subcomponents/EffortSelector';
+import { type EffortLevel, DEFAULT_EFFORT, EFFORT_LEVELS, getEffortPrefix } from '../view/subcomponents/EffortSelector';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type {
@@ -51,6 +51,12 @@ function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
   if (starts([0x42, 0x4d])) return true;
   return false;
 }
+
+// Per-session persistence for the thinking/effort level. Keyed by session id so
+// each session keeps its own choice instead of snapping back to DEFAULT_EFFORT.
+const EFFORT_STORAGE_PREFIX = 'effortLevel-';
+const isValidEffort = (value: string | null): value is EffortLevel =>
+  !!value && EFFORT_LEVELS.some((e) => e.id === value);
 
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
@@ -242,7 +248,41 @@ export function useChatComposerState({
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [effortLevel, setEffortLevel] = useState<EffortLevel>(DEFAULT_EFFORT);
+  const [effortLevel, setEffortLevelState] = useState<EffortLevel>(() => {
+    const id = currentSessionId || selectedSession?.id;
+    if (id) {
+      const stored = safeLocalStorage.getItem(`${EFFORT_STORAGE_PREFIX}${id}`);
+      if (isValidEffort(stored)) return stored;
+    }
+    return DEFAULT_EFFORT;
+  });
+  // Latest effort, readable from the session-change effect without making effort
+  // a dependency (that would reset the value every time the user changes it).
+  const effortLevelRef = useRef(effortLevel);
+  effortLevelRef.current = effortLevel;
+
+  // User-facing setter: update state and persist under the active session id.
+  const setEffortLevel = useCallback((level: EffortLevel) => {
+    setEffortLevelState(level);
+    const id = currentSessionId || selectedSession?.id;
+    if (id) {
+      safeLocalStorage.setItem(`${EFFORT_STORAGE_PREFIX}${id}`, level);
+    }
+  }, [currentSessionId, selectedSession?.id]);
+
+  // On session switch: load that session's saved effort, or bind the current
+  // selection to a session that has none yet (covers a freshly created session
+  // whose id only appears after the first message is sent).
+  useEffect(() => {
+    const id = currentSessionId || selectedSession?.id;
+    if (!id) return;
+    const stored = safeLocalStorage.getItem(`${EFFORT_STORAGE_PREFIX}${id}`);
+    if (isValidEffort(stored)) {
+      setEffortLevelState(stored);
+    } else {
+      safeLocalStorage.setItem(`${EFFORT_STORAGE_PREFIX}${id}`, effortLevelRef.current);
+    }
+  }, [currentSessionId, selectedSession?.id]);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -872,7 +912,7 @@ export function useChatComposerState({
       setUploadingImages(new Map());
       setImageErrors(new Map());
       setIsTextareaExpanded(false);
-      setEffortLevel(DEFAULT_EFFORT);
+      // Effort is per-session and persisted; do NOT reset it after each send.
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
     },
