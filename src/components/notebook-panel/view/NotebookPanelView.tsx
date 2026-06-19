@@ -1,10 +1,14 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import MarkdownCodeBlock from '../../code-editor/view/subcomponents/markdown/MarkdownCodeBlock';
 
 // Hoisted so the array identity is stable across renders (inline `[remarkGfm]`
 // would force ReactMarkdown to treat plugins as changed every render).
 const NOTEBOOK_REMARK_PLUGINS = [remarkGfm];
+// Stable components map — gives fenced code blocks a syntax-highlighted view + an
+// always-visible Copy button (mobile-friendly). Inline object would re-render each keystroke.
+const NOTEBOOK_MD_COMPONENTS = { code: MarkdownCodeBlock };
 import {
   Bold, BookOpen, ChevronDown, ChevronRight, Code, Edit3,
   Eye, GripVertical, Heading1, Heading2, Heading3,
@@ -334,7 +338,7 @@ function NotebookPanelView({ projectId }: NotebookPanelViewProps) {
                 {/* Only parse/render the (potentially huge) markdown while the panel
                     is actually open — when closed it is hidden off-screen anyway. */}
                 {isOpen ? (
-                  <ReactMarkdown remarkPlugins={NOTEBOOK_REMARK_PLUGINS}>{content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={NOTEBOOK_REMARK_PLUGINS} components={NOTEBOOK_MD_COMPONENTS}>{content}</ReactMarkdown>
                 ) : null}
               </div>
             ) : (
