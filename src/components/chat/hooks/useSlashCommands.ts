@@ -73,6 +73,10 @@ const isSkillCommand = (command: SlashCommand) =>
 const isCliCommand = (command: SlashCommand) =>
   command.type === 'cli' || command.namespace === 'cli';
 
+// /btw inserts into composer so user can append steering text before sending.
+const isBtwCommand = (command: SlashCommand) =>
+  command.type === 'btw' || command.namespace === 'btw';
+
 const dedupeProviderSkills = (skills: ProviderSkill[]): ProviderSkill[] => {
   const seenCommands = new Set<string>();
 
@@ -336,7 +340,7 @@ export function useSlashCommands({
 
   const selectCommandFromKeyboard = useCallback(
     (command: SlashCommand) => {
-      if (isSkillCommand(command) || isCliCommand(command)) {
+      if (isSkillCommand(command) || isCliCommand(command) || isBtwCommand(command)) {
         insertCommandIntoInput(command);
         return;
       }
@@ -358,7 +362,7 @@ export function useSlashCommands({
       }
 
       trackCommandUsage(command);
-      if (isSkillCommand(command) || isCliCommand(command)) {
+      if (isSkillCommand(command) || isCliCommand(command) || isBtwCommand(command)) {
         insertCommandIntoInput(command);
         return;
       }

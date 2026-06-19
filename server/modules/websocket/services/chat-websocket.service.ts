@@ -205,6 +205,23 @@ export function handleChatConnection(
         return;
       }
 
+      if (messageType === 'btw-inject') {
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+        const content = typeof data.content === 'string' ? data.content.trim() : '';
+        if (sessionId && content && dependencies.injectBtwMessage) {
+          const result = dependencies.injectBtwMessage(sessionId, content);
+          if (!result.ok) {
+            writer.send(createNormalizedMessage({
+              kind: 'error',
+              error: 'No active turn to inject into',
+              sessionId,
+              provider: 'claude',
+            }));
+          }
+        }
+        return;
+      }
+
       if (messageType === 'claude-permission-response') {
         if (typeof data.requestId === 'string' && data.requestId.length > 0) {
           dependencies.resolveToolApproval(data.requestId, {

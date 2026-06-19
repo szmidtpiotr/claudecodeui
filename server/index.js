@@ -24,6 +24,7 @@ import { resolveSudoPassword, setServerPort } from './modules/sudo-askpass/sudo-
 import {
     queryClaudeSDK,
     abortClaudeSDKSession,
+    injectBtwMessage,
     isClaudeSDKSessionActive,
     getActiveClaudeSDKSessions,
     resolveToolApproval,
@@ -116,6 +117,7 @@ const wss = createWebSocketServer(server, {
         spawnOpenCode,
         queryAzure,
         abortClaudeSDKSession,
+        injectBtwMessage,
         abortCursorSession,
         abortCodexSession,
         abortGeminiSession,

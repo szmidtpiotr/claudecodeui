@@ -110,6 +110,7 @@ interface ChatComposerProps {
   modelCatalogOptions?: { value: string; label: string; description?: string }[];
   queuedPrompt?: string | null;
   onClearQueuedPrompt?: () => void;
+  btwNotice?: 'sent' | 'no_turn' | null;
   onTogglePromptNav?: () => void;
   dictationState?: 'idle' | 'recording' | 'transcribing' | 'error';
   dictationError?: string | null;
@@ -178,6 +179,7 @@ const ChatComposer = memo(function ChatComposer({
   modelCatalogOptions,
   queuedPrompt,
   onClearQueuedPrompt,
+  btwNotice,
   onTogglePromptNav,
   dictationState = 'idle',
   dictationError,
@@ -245,6 +247,20 @@ const ChatComposer = memo(function ChatComposer({
                 <XIcon className="h-3 w-3" />
               </button>
             )}
+          </div>
+        )}
+        {btwNotice && (
+          <div className={`mb-2 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs shadow-sm backdrop-blur-md ${
+            btwNotice === 'sent'
+              ? 'border-blue-300/60 bg-blue-50/80 text-blue-800 dark:border-blue-600/40 dark:bg-blue-900/15 dark:text-blue-200'
+              : 'border-amber-300/60 bg-amber-50/80 text-amber-800 dark:border-amber-600/40 dark:bg-amber-900/15 dark:text-amber-200'
+          }`}>
+            <MessageSquareIcon className="h-3 w-3 flex-shrink-0" />
+            <span>
+              {btwNotice === 'sent'
+                ? t('input.btwSent', { defaultValue: '↪ Steering message sent to running agent' })
+                : t('input.btwNoTurn', { defaultValue: '/btw only works while the agent is running' })}
+            </span>
           </div>
         )}
         {isUserScrolledUp && hasMessages && (

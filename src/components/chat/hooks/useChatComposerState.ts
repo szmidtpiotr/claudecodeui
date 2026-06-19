@@ -284,6 +284,8 @@ export function useChatComposerState({
     }
   }, [currentSessionId, selectedSession?.id]);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
+  const [btwNotice, setBtwNotice] = useState<'sent' | 'no_turn' | null>(null);
+  const btwNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -653,6 +655,26 @@ export function useChatComposerState({
       if (!currentInput.trim() || !selectedProject) {
         return;
       }
+
+      // /btw <text> — inject steering message into the currently-running turn.
+      const btwMatch = currentInput.trim().match(/^\/btw\s+([\s\S]+)/);
+      if (btwMatch) {
+        const btwContent = btwMatch[1].trim();
+        const sessionId = currentSessionId;
+        if (btwNoticeTimerRef.current) clearTimeout(btwNoticeTimerRef.current);
+        if (btwContent && isLoading && sessionId) {
+          sendMessage({ type: 'btw-inject', sessionId, content: btwContent });
+          setBtwNotice('sent');
+        } else {
+          setBtwNotice('no_turn');
+        }
+        btwNoticeTimerRef.current = setTimeout(() => setBtwNotice(null), 3000);
+        setInput('');
+        inputValueRef.current = '';
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        return;
+      }
+
       if (isLoading) {
         enqueuePrompt(currentInput);
         setInput('');
@@ -1233,6 +1255,7 @@ export function useChatComposerState({
     openImagePicker: open,
     queuedPrompt,
     clearQueuedPrompt,
+    btwNotice,
     handleSubmit,
     handleInputChange,
     handleKeyDown,

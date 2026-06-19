@@ -214,6 +214,13 @@ const cliCommands = [
     namespace: 'cli',
     type: 'cli',
     metadata: { type: 'cli' }
+  },
+  {
+    name: '/btw',
+    description: 'Inject a steering message into the currently-running agent turn',
+    namespace: 'btw',
+    type: 'btw',
+    metadata: { type: 'btw' }
   }
 ];
 

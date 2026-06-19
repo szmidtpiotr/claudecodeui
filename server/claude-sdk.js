@@ -36,6 +36,43 @@ import { createNormalizedMessage } from './shared/utils.js';
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
 
+function createPushChannel() {
+  const queue = [];
+  let waitResolve = null;
+  let closed = false;
+
+  const channel = {
+    push(message) {
+      if (closed) return;
+      queue.push(message);
+      if (waitResolve) { const r = waitResolve; waitResolve = null; r(); }
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (waitResolve) { const r = waitResolve; waitResolve = null; r(); }
+    },
+    get isClosed() { return closed; },
+    iterable: null,
+  };
+
+  channel.iterable = {
+    [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          while (queue.length === 0 && !closed) {
+            await new Promise(r => { waitResolve = r; });
+          }
+          if (queue.length > 0) return { value: queue.shift(), done: false };
+          return { value: undefined, done: true };
+        }
+      };
+    }
+  };
+
+  return channel;
+}
+
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
@@ -245,14 +282,15 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Array<string>} tempImagePaths - Temp image file paths for cleanup
  * @param {string} tempDir - Temp directory for cleanup
  */
-function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null) {
+function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null, pushChannel = null) {
   activeSessions.set(sessionId, {
     instance: queryInstance,
     startTime: Date.now(),
     status: 'active',
     tempImagePaths,
     tempDir,
-    writer
+    writer,
+    pushChannel,
   });
 }
 
@@ -639,10 +677,20 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
 
+    // Create a push channel so this turn runs in streaming-input mode,
+    // which allows /btw mid-run injection via priority:'now' messages.
+    const pushChannel = createPushChannel();
+    pushChannel.push({
+      type: 'user',
+      message: { role: 'user', content: finalCommand },
+      parent_tool_use_id: null,
+      shouldQuery: true,
+    });
+
     let queryInstance;
     try {
       queryInstance = query({
-        prompt: finalCommand,
+        prompt: pushChannel.iterable,
         options: sdkOptions
       });
     } catch (hookError) {
@@ -651,7 +699,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
       delete sdkOptions.hooks;
       queryInstance = query({
-        prompt: finalCommand,
+        prompt: pushChannel.iterable,
         options: sdkOptions
       });
     }
@@ -663,9 +711,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     }
 
-    // Track the query instance for abort capability
+    // Track the query instance and push channel for abort + /btw injection
     if (capturedSessionId) {
-      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws);
+      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel);
     }
 
     // Process streaming messages
@@ -673,11 +721,16 @@ async function queryClaudeSDK(command, options = {}, ws) {
     let compactionOccurred = false;
     let finalResultText = null;
     for await (const message of queryInstance) {
+      // Close the push channel when the turn completes so the iterator ends cleanly
+      if (message.type === 'result') {
+        pushChannel.close();
+      }
+
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws);
+        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -805,6 +858,9 @@ async function abortClaudeSDKSession(sessionId) {
     // Call interrupt() on the query instance
     await session.instance.interrupt();
 
+    // Close push channel so the streaming-input iterator terminates cleanly
+    session.pushChannel?.close();
+
     // Update session status
     session.status = 'aborted';
 
@@ -876,10 +932,33 @@ function reconnectSessionWriter(sessionId, newRawWs) {
   return true;
 }
 
+/**
+ * Injects a /btw steering message into an actively-running turn.
+ * Only works while a turn is in progress (push channel open).
+ * @param {string} sessionId
+ * @param {string} content - The steering text from the user
+ * @returns {{ ok: boolean, reason?: string }}
+ */
+function injectBtwMessage(sessionId, content) {
+  const session = getSession(sessionId);
+  if (!session?.pushChannel || session.pushChannel.isClosed) {
+    return { ok: false, reason: 'no_active_turn' };
+  }
+  session.pushChannel.push({
+    type: 'user',
+    message: { role: 'user', content },
+    parent_tool_use_id: null,
+    priority: 'now',
+    shouldQuery: true,
+  });
+  return { ok: true };
+}
+
 // Export public API
 export {
   queryClaudeSDK,
   abortClaudeSDKSession,
+  injectBtwMessage,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,

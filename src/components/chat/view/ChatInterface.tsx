@@ -186,6 +186,7 @@ function ChatInterface({
     openImagePicker,
     queuedPrompt,
     clearQueuedPrompt,
+    btwNotice,
     handleSubmit,
     handleInputChange,
     handleKeyDown,
@@ -678,6 +679,7 @@ function ChatInterface({
           modelCatalogOptions={providerModelCatalog[provider as keyof typeof providerModelCatalog]?.OPTIONS}
           queuedPrompt={queuedPrompt}
           onClearQueuedPrompt={clearQueuedPrompt}
+          btwNotice={btwNotice}
           onTogglePromptNav={handleTogglePromptNav}
           dictationState={dictationState}
           dictationError={dictationError}
