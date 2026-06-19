@@ -50,7 +50,7 @@ export default function MarkdownCodeBlock({
               setTimeout(() => setCopied(false), 2000);
             }
           })}
-        className="absolute right-2 top-2 z-10 rounded-md border border-gray-600 bg-gray-700/80 px-2 py-1 text-xs text-white opacity-0 transition-opacity hover:bg-gray-700 group-hover:opacity-100"
+        className="absolute right-2 top-2 z-10 rounded-md border border-gray-600 bg-gray-700/90 px-2 py-1 text-xs text-white opacity-80 transition-opacity hover:bg-gray-700 hover:opacity-100"
       >
         {copied ? 'Copied!' : 'Copy'}
       </button>
