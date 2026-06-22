@@ -55,6 +55,13 @@ export const api = {
   // the DB-assigned `projectId`; parameter names reflect that for clarity.
   projects: () => authenticatedFetch('/api/projects'),
   archivedProjects: () => authenticatedFetch('/api/projects/archived'),
+  // Pinned session IDs are persisted server-side so they sync across devices.
+  getPinnedSessions: () => authenticatedFetch('/api/settings/pinned-sessions'),
+  setPinnedSessions: (sessionIds) =>
+    authenticatedFetch('/api/settings/pinned-sessions', {
+      method: 'PUT',
+      body: JSON.stringify({ sessionIds }),
+    }),
   projectSessions: (projectId, { limit = 20, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     params.set('limit', String(limit));

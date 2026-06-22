@@ -1,5 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
 import type { Project, LLMProvider } from '../types/app';
+import { api } from '../utils/api';
 
 export type UnreadSessionEntry = {
   sessionId: string;
@@ -18,13 +20,90 @@ const MAX_AGE_DAYS = 7;
 function getReads(): Record<string, number> {
   try { return JSON.parse(localStorage.getItem(READS_KEY) || '{}'); } catch { return {}; }
 }
-function getPins(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(PINS_KEY) || '[]')); } catch { return new Set(); }
+
+// ---------------------------------------------------------------------------
+// Pinned sessions — server-backed, shared across devices.
+//
+// Pins used to live in localStorage, which never synced between desktop and
+// mobile and silently diverged (pins made on one device were invisible on the
+// other, and stale entries reappeared on re-pin). They are now persisted on the
+// server (GET/PUT /api/settings/pinned-sessions). A module-level cache keeps all
+// hook instances in sync within a tab; a focus listener re-pulls so a pin made
+// on another device shows up when the user returns to this one.
+// ---------------------------------------------------------------------------
+
+let pinsCache = new Set<string>();
+let pinsLoaded = false;
+let pinsLoading = false;
+const pinSubscribers = new Set<() => void>();
+
+function notifyPinSubscribers(): void {
+  pinSubscribers.forEach((fn) => fn());
+}
+
+function readLegacyLocalPins(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PINS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+async function persistPins(ids: Set<string>): Promise<void> {
+  try {
+    await api.setPinnedSessions([...ids]);
+  } catch (err) {
+    console.error('Failed to persist pinned sessions:', err);
+  }
+}
+
+async function loadPinsFromServer(): Promise<void> {
+  if (pinsLoading) return;
+  pinsLoading = true;
+  try {
+    const res = await api.getPinnedSessions();
+    const data = await res.json();
+    const serverIds: string[] = Array.isArray(data?.sessionIds) ? data.sessionIds : [];
+
+    // One-time migration: fold any pins left in localStorage into the server
+    // set so users do not lose pins made before the server-sync change.
+    const legacy = readLegacyLocalPins();
+    const merged = new Set<string>([...serverIds, ...legacy]);
+    if (legacy.length > 0) {
+      localStorage.removeItem(PINS_KEY);
+      if (merged.size !== serverIds.length) {
+        await persistPins(merged);
+      }
+    }
+
+    pinsCache = merged;
+    pinsLoaded = true;
+    notifyPinSubscribers();
+  } catch (err) {
+    console.error('Failed to load pinned sessions:', err);
+  } finally {
+    pinsLoading = false;
+  }
 }
 
 export function useUnreadSessions(projects: Project[]) {
   const [, forceUpdate] = useState(0);
   const refresh = useCallback(() => forceUpdate(n => n + 1), []);
+
+  // Subscribe to pin-cache changes and load from the server once.
+  useEffect(() => {
+    pinSubscribers.add(refresh);
+    if (!pinsLoaded) {
+      void loadPinsFromServer();
+    }
+    const onFocus = () => { void loadPinsFromServer(); };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      pinSubscribers.delete(refresh);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refresh]);
 
   const markRead = useCallback((sessionId: string) => {
     const reads = getReads();
@@ -34,18 +113,19 @@ export function useUnreadSessions(projects: Project[]) {
   }, [refresh]);
 
   const togglePin = useCallback((sessionId: string) => {
-    const pins = getPins();
-    if (pins.has(sessionId)) pins.delete(sessionId);
-    else pins.add(sessionId);
-    localStorage.setItem(PINS_KEY, JSON.stringify([...pins]));
-    refresh();
-  }, [refresh]);
+    const next = new Set(pinsCache);
+    if (next.has(sessionId)) next.delete(sessionId);
+    else next.add(sessionId);
+    pinsCache = next;            // optimistic update
+    notifyPinSubscribers();
+    void persistPins(next);      // sync to server
+  }, []);
 
   const cutoff = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 
   const unreadEntries: UnreadSessionEntry[] = [];
   const reads = getReads();
-  const pins = getPins();
+  const pins = pinsCache;
 
   for (const project of projects) {
     const allSessions = [
@@ -60,10 +140,14 @@ export function useUnreadSessions(projects: Project[]) {
       const lastActivity = session.lastActivity || session.updated_at || session.createdAt || session.created_at;
       if (!lastActivity) continue;
       const activityMs = new Date(lastActivity).getTime();
-      if (isNaN(activityMs) || activityMs < cutoff) continue;
+      if (isNaN(activityMs)) continue;
 
       const lastRead = reads[session.id] ?? 0;
       const pinned = pins.has(session.id);
+
+      // Pinned sessions bypass the age cutoff — a pin should keep a session
+      // visible indefinitely, not silently drop it after 7 days of inactivity.
+      if (activityMs < cutoff && !pinned) continue;
 
       if (activityMs > lastRead || pinned) {
         unreadEntries.push({
@@ -91,5 +175,5 @@ export function useUnreadSessions(projects: Project[]) {
     return new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime();
   });
 
-  return { unreadEntries, unreadCount: unreadEntries.length, markRead, togglePin, pinnedSessionIds: getPins() };
+  return { unreadEntries, unreadCount: unreadEntries.length, markRead, togglePin, pinnedSessionIds: pinsCache };
 }

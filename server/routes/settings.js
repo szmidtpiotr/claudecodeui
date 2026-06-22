@@ -1,6 +1,6 @@
 import express from 'express';
 
-import { apiKeysDb, credentialsDb, notificationPreferencesDb, pushSubscriptionsDb } from '../modules/database/index.js';
+import { apiKeysDb, appConfigDb, credentialsDb, notificationPreferencesDb, pushSubscriptionsDb } from '../modules/database/index.js';
 import { getPublicKey } from '../services/vapid-keys.js';
 import { createNotificationEvent, notifyUserIfEnabled } from '../services/notification-orchestrator.js';
 
@@ -199,6 +199,54 @@ router.put('/notification-preferences', async (req, res) => {
   } catch (error) {
     console.error('Error saving notification preferences:', error);
     res.status(500).json({ error: 'Failed to save notification preferences' });
+  }
+});
+
+// ===============================
+// Pinned Sessions (cross-device sync)
+// ===============================
+//
+// Pinned session IDs were historically kept in browser localStorage, which
+// never synced across devices and silently diverged (a pin made on the phone
+// was invisible on the desktop, and stale entries reappeared on re-pin). They
+// now live server-side in app_config, keyed per user, so every device reads the
+// same set. Stored as a JSON array of session IDs.
+
+const PINNED_SESSIONS_KEY = (userId) => `pinned_sessions:${userId}`;
+
+function readPinnedSessions(userId) {
+  try {
+    const raw = appConfigDb.get(PINNED_SESSIONS_KEY(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+router.get('/pinned-sessions', async (req, res) => {
+  try {
+    res.json({ success: true, sessionIds: readPinnedSessions(req.user.id) });
+  } catch (error) {
+    console.error('Error fetching pinned sessions:', error);
+    res.status(500).json({ error: 'Failed to fetch pinned sessions' });
+  }
+});
+
+router.put('/pinned-sessions', async (req, res) => {
+  try {
+    const { sessionIds } = req.body || {};
+    if (!Array.isArray(sessionIds) || !sessionIds.every((id) => typeof id === 'string')) {
+      return res.status(400).json({ error: 'sessionIds must be an array of strings' });
+    }
+    // De-dupe while preserving order so repeated PUTs stay stable.
+    const unique = [...new Set(sessionIds)];
+    appConfigDb.set(PINNED_SESSIONS_KEY(req.user.id), JSON.stringify(unique));
+    res.json({ success: true, sessionIds: unique });
+  } catch (error) {
+    console.error('Error saving pinned sessions:', error);
+    res.status(500).json({ error: 'Failed to save pinned sessions' });
   }
 });
 
