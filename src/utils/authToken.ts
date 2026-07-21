@@ -1,15 +1,7 @@
-import { AUTH_TOKEN_STORAGE_KEY } from '../components/auth/constants';
-
-/**
- * Reads the persisted token without inspecting it. Use this when you need to
- * compare what is stored now against what a request was made with.
- */
-export const readRawAuthToken = (): string | null =>
-  localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-
-export const clearAuthToken = (): void => {
-  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-};
+import {
+  AUTH_TOKEN_STORAGE_KEY,
+  LEGACY_AUTH_TOKEN_STORAGE_KEY,
+} from '../components/auth/constants';
 
 /**
  * Decodes the JWT payload and reports whether it is already past its `exp`.
@@ -28,6 +20,42 @@ export const isTokenExpired = (token: string): boolean => {
   } catch {
     return true;
   }
+};
+
+/**
+ * One-time migration from the legacy key. A still-valid legacy token moves to
+ * the new key so the user is not logged out by the rename; an expired one is
+ * simply dropped. The legacy key is always removed so code from the previous
+ * bundle (old tab, installed PWA) has nothing left to fight over.
+ */
+const migrateLegacyToken = (): void => {
+  const legacy = localStorage.getItem(LEGACY_AUTH_TOKEN_STORAGE_KEY);
+  if (legacy === null) {
+    return;
+  }
+
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY);
+  if (!localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) && !isTokenExpired(legacy)) {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, legacy);
+  }
+};
+
+/**
+ * Reads the persisted token without inspecting it. Use this when you need to
+ * compare what is stored now against what a request was made with.
+ */
+export const readRawAuthToken = (): string | null => {
+  migrateLegacyToken();
+  return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+};
+
+export const persistAuthToken = (token: string): void => {
+  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+};
+
+export const clearAuthToken = (): void => {
+  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY);
 };
 
 /**

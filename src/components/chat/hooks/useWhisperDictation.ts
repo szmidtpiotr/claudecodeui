@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+
 import { loadWhisperSettings } from '../../settings/view/tabs/VoiceSettingsTab';
 import { IS_PLATFORM } from '../../../constants/config';
+import { readValidAuthToken } from '../../../utils/authToken';
 
 type DictationState = 'idle' | 'recording' | 'transcribing' | 'error';
 
@@ -62,7 +64,7 @@ export function useWhisperDictation({ onTranscription }: UseWhisperDictationOpti
       const upstreamWs = url.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/voice/stt';
       // Route through the app's own WS server to avoid mixed-content blocks on HTTPS pages.
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = IS_PLATFORM ? null : localStorage.getItem('auth-token');
+      const token = IS_PLATFORM ? null : readValidAuthToken();
       const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
       const wsUrl = `${wsProtocol}//${window.location.host}/voice-stt?target=${encodeURIComponent(upstreamWs)}${tokenParam}`;
 

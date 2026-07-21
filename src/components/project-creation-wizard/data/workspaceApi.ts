@@ -1,4 +1,5 @@
 import { api } from '../../../utils/api';
+import { readValidAuthToken } from '../../../utils/authToken';
 import type {
   BrowseFilesystemResponse,
   CloneProgressEvent,
@@ -132,7 +133,7 @@ const buildCloneProgressQuery = ({
   }
 
   // EventSource cannot send custom headers, so the auth token is passed as query.
-  const authToken = localStorage.getItem('auth-token');
+  const authToken = readValidAuthToken();
   if (authToken) {
     query.set('token', authToken);
   }

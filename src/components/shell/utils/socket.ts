@@ -1,4 +1,5 @@
 import { IS_PLATFORM } from '../../../constants/config';
+import { readValidAuthToken } from '../../../utils/authToken';
 import type { ShellIncomingMessage, ShellOutgoingMessage } from '../types/types';
 
 export function getShellWebSocketUrl(): string | null {
@@ -8,7 +9,7 @@ export function getShellWebSocketUrl(): string | null {
     return `${protocol}//${window.location.host}/shell`;
   }
 
-  const token = localStorage.getItem('auth-token');
+  const token = readValidAuthToken();
   if (!token) {
     console.error('No authentication token found for Shell WebSocket connection');
     return null;

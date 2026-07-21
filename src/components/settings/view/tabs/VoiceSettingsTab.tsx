@@ -1,6 +1,8 @@
 import { Keyboard, Mic, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
 import { Button } from '../../../../shared/view/ui';
+import { readValidAuthToken } from '../../../../utils/authToken';
 
 export type ShortcutConfig = {
   key: string;
@@ -119,13 +121,13 @@ function ShortcutRecorder({
   return (
     <div className="flex items-center gap-3">
       <div
-        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm min-w-[160px] ${
+        className={`flex min-w-[160px] items-center gap-2 rounded-md border px-3 py-2 text-sm ${
           recording
-            ? 'border-primary bg-primary/5 text-primary animate-pulse'
+            ? 'animate-pulse border-primary bg-primary/5 text-primary'
             : 'border-input bg-background text-foreground'
         }`}
       >
-        <Keyboard className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+        <Keyboard className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
         <span className="font-mono">
           {recording ? 'Press shortcut…' : formatShortcut(displayed)}
         </span>
@@ -168,7 +170,7 @@ export default function VoiceSettingsTab() {
   const handleTest = async () => {
     setTestStatus('idle');
     setTestInfo('checking…');
-    const token = localStorage.getItem('auth-token');
+    const token = readValidAuthToken();
     const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     try {
       const [hRes, cRes] = await Promise.all([
@@ -193,7 +195,7 @@ export default function VoiceSettingsTab() {
     <div className="space-y-6 md:space-y-8">
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <Mic className="w-5 h-5 text-blue-600" />
+          <Mic className="h-5 w-5 text-blue-600" />
           <h3 className="text-lg font-medium text-foreground">Voice / Whisper Dictation</h3>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -202,7 +204,7 @@ export default function VoiceSettingsTab() {
         </p>
       </div>
 
-      <div className="space-y-4 bg-card border border-border rounded-lg p-4">
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <h4 className="font-medium text-foreground">Voice Service URL</h4>
 
         <div className="space-y-2">
@@ -215,7 +217,7 @@ export default function VoiceSettingsTab() {
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <p className="text-xs text-muted-foreground">
-            WebSocket connects to <code className="text-xs bg-muted px-1 rounded">{settings.url.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')}/voice/stt</code>
+            WebSocket connects to <code className="rounded bg-muted px-1 text-xs">{settings.url.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://')}/voice/stt</code>
           </p>
         </div>
 
@@ -231,7 +233,7 @@ export default function VoiceSettingsTab() {
         </div>
       </div>
 
-      <div className="space-y-4 bg-card border border-border rounded-lg p-4">
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <h4 className="font-medium text-foreground">Keyboard Shortcut</h4>
         <p className="text-sm text-muted-foreground">
           Global shortcut to start/stop dictation from anywhere in the app.
@@ -242,26 +244,26 @@ export default function VoiceSettingsTab() {
         />
       </div>
 
-      <div className="space-y-3 bg-muted/30 border border-border rounded-lg p-4">
+      <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
         <h4 className="text-sm font-medium text-foreground">Language, model & VAD</h4>
         <p className="text-sm text-muted-foreground">
           These are configured on the voice service itself, not per-request. Change them via:
         </p>
-        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
           <li>Admin panel → Voice → STT settings</li>
           <li>
-            <code className="text-xs bg-muted px-1 rounded">POST {settings.url}/voice/config</code> with <code className="text-xs bg-muted px-1 rounded">{'{"stt_model":"small","stt_language":"pl","vad_filter":true}'}</code>
+            <code className="rounded bg-muted px-1 text-xs">POST {settings.url}/voice/config</code> with <code className="rounded bg-muted px-1 text-xs">{'{"stt_model":"small","stt_language":"pl","vad_filter":true}'}</code>
           </li>
         </ul>
       </div>
 
       <div className="flex items-center gap-3">
         <Button onClick={handleSave} className="flex items-center gap-2">
-          <Save className="w-4 h-4" />
+          <Save className="h-4 w-4" />
           Save
         </Button>
         {saved && (
-          <span className="text-sm text-muted-foreground animate-in fade-in">Saved</span>
+          <span className="animate-in fade-in text-sm text-muted-foreground">Saved</span>
         )}
       </div>
     </div>

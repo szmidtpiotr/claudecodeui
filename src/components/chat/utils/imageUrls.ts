@@ -1,5 +1,6 @@
 // Helpers to serve filesystem images through the existing
 // /api/projects/:projectId/files/content endpoint.
+import { readValidAuthToken } from '../../../utils/authToken';
 
 const IMAGE_EXT_REGEX = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i;
 
@@ -8,7 +9,7 @@ export function isImagePath(p: string): boolean {
 }
 
 export function buildFileUrl(absolutePath: string, projectId: string | number): string {
-  const token = localStorage.getItem('auth-token') || '';
+  const token = readValidAuthToken() || '';
   const params = new URLSearchParams({ path: absolutePath });
   if (token) params.set('token', token);
   return `/api/projects/${projectId}/files/content?${params.toString()}`;
