@@ -15,7 +15,45 @@ import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const readStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+const readRawStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+/**
+ * Decodes the JWT payload and reports whether it is already past its `exp`.
+ * Anything unparseable counts as expired so we never send garbage to the server.
+ */
+const isTokenExpired = (token: string): boolean => {
+  try {
+    const payloadSegment = token.split('.')[1];
+    if (!payloadSegment) {
+      return true;
+    }
+
+    const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(normalized)) as { exp?: number };
+    return typeof exp !== 'number' || exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * Reads the persisted token, dropping it when it has already expired. Without this
+ * an expired token survives in localStorage and gets sent on the very first
+ * /api/auth/user call, which answers 403 and tears the session down again.
+ */
+const readStoredToken = (): string | null => {
+  const stored = readRawStoredToken();
+  if (!stored) {
+    return null;
+  }
+
+  if (isTokenExpired(stored)) {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    return null;
+  }
+
+  return stored;
+};
 
 const persistToken = (token: string) => {
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
@@ -93,15 +131,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      const requestToken = readRawStoredToken();
       const userResponse = await api.auth.user();
+
+      // A login can complete while this check is still in flight. In that case the
+      // stored token is newer than the one this request carried, so its failure says
+      // nothing about the current session — bailing out keeps us from clearing it.
+      const sessionReplaced = () => readRawStoredToken() !== requestToken;
+
       if (!userResponse.ok) {
-        clearSession();
+        if (!sessionReplaced()) {
+          clearSession();
+        }
         return;
       }
 
       const userPayload = await parseJsonSafely<AuthUserPayload>(userResponse);
       if (!userPayload?.user) {
-        clearSession();
+        if (!sessionReplaced()) {
+          clearSession();
+        }
         return;
       }
 
