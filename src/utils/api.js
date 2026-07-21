@@ -1,8 +1,10 @@
 import { IS_PLATFORM } from "../constants/config";
 
+import { readValidAuthToken } from "./authToken";
+
 // Utility function for authenticated API calls
 export const authenticatedFetch = (url, options = {}) => {
-  const token = localStorage.getItem('auth-token');
+  const token = readValidAuthToken();
 
   const defaultHeaders = {};
 
@@ -124,7 +126,7 @@ export const api = {
     });
   },
   searchConversationsUrl: (query, limit = 50) => {
-    const token = localStorage.getItem('auth-token');
+    const token = readValidAuthToken();
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (token) params.set('token', token);
     return `/api/providers/search/sessions?${params.toString()}`;

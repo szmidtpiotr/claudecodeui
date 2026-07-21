@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+
 import { IS_PLATFORM } from '../../../constants/config';
 import { api } from '../../../utils/api';
 import { AUTH_ERROR_MESSAGES, AUTH_TOKEN_STORAGE_KEY } from '../constants';
@@ -12,55 +13,12 @@ import type {
   OnboardingStatusPayload,
 } from '../types';
 import { parseJsonSafely, resolveApiErrorMessage } from '../utils';
+import { clearAuthToken, readRawAuthToken, readValidAuthToken } from '../../../utils/authToken';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const readRawStoredToken = (): string | null => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-
-/**
- * Decodes the JWT payload and reports whether it is already past its `exp`.
- * Anything unparseable counts as expired so we never send garbage to the server.
- */
-const isTokenExpired = (token: string): boolean => {
-  try {
-    const payloadSegment = token.split('.')[1];
-    if (!payloadSegment) {
-      return true;
-    }
-
-    const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-    const { exp } = JSON.parse(atob(normalized)) as { exp?: number };
-    return typeof exp !== 'number' || exp * 1000 <= Date.now();
-  } catch {
-    return true;
-  }
-};
-
-/**
- * Reads the persisted token, dropping it when it has already expired. Without this
- * an expired token survives in localStorage and gets sent on the very first
- * /api/auth/user call, which answers 403 and tears the session down again.
- */
-const readStoredToken = (): string | null => {
-  const stored = readRawStoredToken();
-  if (!stored) {
-    return null;
-  }
-
-  if (isTokenExpired(stored)) {
-    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-    return null;
-  }
-
-  return stored;
-};
-
 const persistToken = (token: string) => {
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-};
-
-const clearStoredToken = () => {
-  localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
 };
 
 export function useAuth(): AuthContextValue {
@@ -74,7 +32,7 @@ export function useAuth(): AuthContextValue {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => readStoredToken());
+  const [token, setToken] = useState<string | null>(() => readValidAuthToken());
   const [isLoading, setIsLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
@@ -89,7 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const clearSession = useCallback(() => {
     setUser(null);
     setToken(null);
-    clearStoredToken();
+    clearAuthToken();
   }, []);
 
   const checkOnboardingStatus = useCallback(async () => {
@@ -131,13 +89,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const requestToken = readRawStoredToken();
+      const requestToken = readRawAuthToken();
       const userResponse = await api.auth.user();
 
       // A login can complete while this check is still in flight. In that case the
       // stored token is newer than the one this request carried, so its failure says
       // nothing about the current session — bailing out keeps us from clearing it.
-      const sessionReplaced = () => readRawStoredToken() !== requestToken;
+      const sessionReplaced = () => readRawAuthToken() !== requestToken;
 
       if (!userResponse.ok) {
         if (!sessionReplaced()) {
