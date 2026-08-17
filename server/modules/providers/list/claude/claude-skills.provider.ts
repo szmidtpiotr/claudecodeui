@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { SkillsProvider } from '@/modules/providers/shared/skills/skills.provider.js';
-import { parseFrontMatter } from '@/shared/frontmatter.js';
+import { parseFrontMatterLenient } from '@/shared/frontmatter.js';
 import type {
   ProviderSkill,
   ProviderSkillListOptions,
@@ -215,8 +215,7 @@ export class ClaudeSkillsProvider extends SkillsProvider {
     commandPath: string,
   ): Promise<{ name: string; description: string }> {
     const content = await readFile(commandPath, 'utf8');
-    const parsed = parseFrontMatter(content);
-    const data = readObjectRecord(parsed.data) ?? {};
+    const data = readObjectRecord(parseFrontMatterLenient(content)) ?? {};
 
     return {
       name: stripMarkdownExtension(path.basename(commandPath)),

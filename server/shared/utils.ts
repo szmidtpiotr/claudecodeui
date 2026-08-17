@@ -17,7 +17,7 @@ import readline from 'node:readline';
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
-import { parseFrontMatter } from '@/shared/frontmatter.js';
+import { parseFrontMatterLenient } from '@/shared/frontmatter.js';
 import type {
   AnyRecord,
   ApiSuccessShape,
@@ -874,13 +874,14 @@ export async function findProviderSkillMarkdownFiles(
  * The metadata is expected in markdown front matter. If a skill omits `name`, the
  * parent directory name is used as a stable fallback so providers can still
  * expose the skill. Missing descriptions are normalized to an empty string.
+ * Front matter that is not valid YAML is read leniently rather than rejected, so
+ * a stray colon in a prose `description` cannot make the skill disappear.
  */
 export async function readProviderSkillMarkdownDefinition(
   skillPath: string,
 ): Promise<{ name: string; description: string }> {
   const content = await readFile(skillPath, 'utf8');
-  const parsed = parseFrontMatter(content);
-  const data = readObjectRecord(parsed.data) ?? {};
+  const data = readObjectRecord(parseFrontMatterLenient(content)) ?? {};
   const fallbackName = path.basename(path.dirname(skillPath));
 
   return {

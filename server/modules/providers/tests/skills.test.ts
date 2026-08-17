@@ -510,3 +510,47 @@ test('providerSkillsService lists gemini and cursor skills from their configured
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+/**
+ * Hand-written skills often carry prose descriptions where an unquoted
+ * `word: word` breaks YAML. Discovery must still expose those skills instead of
+ * silently dropping them from the slash-command menu.
+ */
+test('providerSkillsService lists claude skills whose front matter is not valid yaml', { concurrency: false }, async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'llm-skills-badyaml-'));
+  const workspacePath = path.join(tempRoot, 'workspace');
+  await fs.mkdir(workspacePath, { recursive: true });
+
+  const restoreHomeDir = patchHomeDir(tempRoot);
+  try {
+    const skillDir = path.join(tempRoot, '.claude', 'skills', 'druk3d');
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: druk3d\ndescription: Print pipeline. Faza jako argument: model | stl | slice.\n---\n\nBody.\n',
+      'utf8',
+    );
+
+    const missingNameDir = path.join(tempRoot, '.claude', 'skills', 'fallback-name');
+    await fs.mkdir(missingNameDir, { recursive: true });
+    await fs.writeFile(
+      path.join(missingNameDir, 'SKILL.md'),
+      '---\ndescription: Uses a colon: here too\n---\n\nBody.\n',
+      'utf8',
+    );
+
+    const skills = await providerSkillsService.listProviderSkills('claude', { workspacePath });
+    const skillsByName = new Map(skills.map((skill) => [skill.name, skill]));
+
+    assert.equal(
+      skillsByName.get('druk3d')?.description,
+      'Print pipeline. Faza jako argument: model | stl | slice.',
+    );
+    assert.equal(skillsByName.get('druk3d')?.command, '/druk3d');
+    assert.equal(skillsByName.get('druk3d')?.scope, 'user');
+    assert.equal(skillsByName.get('fallback-name')?.description, 'Uses a colon: here too');
+  } finally {
+    restoreHomeDir();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
