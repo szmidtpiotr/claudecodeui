@@ -841,10 +841,10 @@ router.post('/delete-branch', async (req, res) => {
   }
 });
 
-// Get recent commits
+// Get recent commits with graph metadata (parents, refs) and stats
 router.get('/commits', async (req, res) => {
-  const { project, limit = 10 } = req.query;
-  
+  const { project, limit = 50 } = req.query;
+
   if (!project) {
     return res.status(400).json({ error: 'Project id is required' });
   }
@@ -854,43 +854,82 @@ router.get('/commits', async (req, res) => {
     await validateGitRepository(projectPath);
     const parsedLimit = Number.parseInt(String(limit), 10);
     const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
-      ? Math.min(parsedLimit, 100)
-      : 10;
-    
-    // Get commit log with stats
-    const { stdout } = await spawnAsync(
+      ? Math.min(parsedLimit, 200)
+      : 50;
+
+    const SEP = '\x1f';
+    // Fields: hash, parents, refs, author, email, date, subject
+    const format = ['%H', '%P', '%D', '%an', '%ae', '%ad', '%s'].join(SEP);
+
+    const { stdout: logOut } = await spawnAsync(
       'git',
-      ['log', '--pretty=format:%H|%an|%ae|%ad|%s', '--date=iso-strict', '-n', String(safeLimit)],
+      [
+        'log',
+        `--pretty=format:${format}`,
+        '--date=iso-strict',
+        '--topo-order',
+        '--branches',
+        '--remotes',
+        '--tags',
+        '-n', String(safeLimit),
+      ],
       { cwd: projectPath },
     );
-    
-    const commits = stdout
+
+    // Build stats map with a single --shortstat pass
+    const statsMap = {};
+    try {
+      const { stdout: shortstatOut } = await spawnAsync(
+        'git',
+        [
+          'log',
+          '--pretty=format:%H',
+          '--shortstat',
+          '--topo-order',
+          '--branches',
+          '--remotes',
+          '--tags',
+          '-n', String(safeLimit),
+        ],
+        { cwd: projectPath },
+      );
+
+      let currentHash = null;
+      for (const rawLine of shortstatOut.split('\n')) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (/^[0-9a-f]{40}$/.test(line)) {
+          currentHash = line;
+        } else if (currentHash && line.includes('file')) {
+          statsMap[currentHash] = line;
+          currentHash = null;
+        }
+      }
+    } catch {
+      // stats are optional — continue without them
+    }
+
+    const commits = logOut
       .split('\n')
-      .filter(line => line.trim())
-      .map(line => {
-        const [hash, author, email, date, ...messageParts] = line.split('|');
+      .filter((line) => line.trim())
+      .map((line) => {
+        const [hash, parentsRaw, refsRaw, author, email, date, ...subjectParts] = line.split(SEP);
+        const parents = parentsRaw ? parentsRaw.trim().split(' ').filter(Boolean) : [];
+        const refs = refsRaw
+          ? refsRaw.split(',').map((r) => r.trim()).filter(Boolean)
+          : [];
         return {
           hash,
+          parents,
+          refs,
           author,
           email,
           date,
-          message: messageParts.join('|')
+          message: subjectParts.join(SEP),
+          stats: statsMap[hash] ?? '',
         };
       });
-    
-    // Get stats for each commit
-    for (const commit of commits) {
-      try {
-        const { stdout: stats } = await spawnAsync(
-          'git', ['show', '--stat', '--format=', commit.hash],
-          { cwd: projectPath }
-        );
-        commit.stats = stats.trim().split('\n').pop(); // Get the summary line
-      } catch (error) {
-        commit.stats = '';
-      }
-    }
-    
+
     res.json({ commits });
   } catch (error) {
     console.error('Git commits error:', error);

@@ -1,8 +1,11 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
+import type { GraphRow } from '../../utils/commitGraph';
+import { parseRefs } from '../../utils/commitGraph';
 import type { GitCommitSummary } from '../../types/types';
 import { getStatusBadgeClass, parseCommitFiles } from '../../utils/gitPanelUtils';
 import GitDiffViewer from '../shared/GitDiffViewer';
+import CommitGraphStrip from './CommitGraphStrip';
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -14,6 +17,7 @@ function formatDate(dateString: string): string {
 
 type CommitHistoryItemProps = {
   commit: GitCommitSummary;
+  graphRow?: GraphRow;
   isExpanded: boolean;
   diff?: string;
   isMobile: boolean;
@@ -23,6 +27,7 @@ type CommitHistoryItemProps = {
 
 export default function CommitHistoryItem({
   commit,
+  graphRow,
   isExpanded,
   diff,
   isMobile,
@@ -34,30 +39,70 @@ export default function CommitHistoryItem({
     return parseCommitFiles(diff);
   }, [diff]);
 
+  const { branches, tags, isHead } = useMemo(
+    () => parseRefs(commit.refs ?? []),
+    [commit.refs],
+  );
+
   return (
     <div className="border-b border-border last:border-0">
       <button
         type="button"
         aria-expanded={isExpanded}
-        className="flex w-full cursor-pointer items-start border-0 bg-transparent p-3 text-left transition-colors hover:bg-accent/50"
+        className="flex w-full cursor-pointer items-stretch border-0 bg-transparent text-left transition-colors hover:bg-accent/50"
         onClick={onToggle}
       >
-        <span className="mr-2 mt-1 rounded p-0.5 hover:bg-accent">
-          {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">{commit.message}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {commit.author}
-                {' \u2022 '}
-                {commit.date}
-              </p>
+        {/* Graph strip */}
+        {graphRow && (
+          <CommitGraphStrip row={graphRow} rowIndex={0} />
+        )}
+
+        {/* Content */}
+        <div className="flex min-w-0 flex-1 items-start gap-2 p-3">
+          <span className="mt-1 rounded p-0.5 hover:bg-accent flex-shrink-0">
+            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </span>
+          <div className="min-w-0 flex-1">
+            {/* Ref badges */}
+            {(branches.length > 0 || tags.length > 0) && (
+              <div className="mb-1 flex flex-wrap gap-1">
+                {isHead && branches.length === 0 && (
+                  <span className="inline-flex items-center rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    HEAD
+                  </span>
+                )}
+                {branches.map((b) => (
+                  <span
+                    key={b}
+                    className="inline-flex items-center rounded border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                  >
+                    {b}
+                  </span>
+                ))}
+                {tags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center rounded border border-green-300 bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-300"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{commit.message}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {commit.author}
+                  {' • '}
+                  {commit.stats || commit.date}
+                </p>
+              </div>
+              <span className="flex-shrink-0 font-mono text-sm text-muted-foreground/60">
+                {commit.hash.substring(0, 7)}
+              </span>
             </div>
-            <span className="flex-shrink-0 font-mono text-sm text-muted-foreground/60">
-              {commit.hash.substring(0, 7)}
-            </span>
           </div>
         </div>
       </button>

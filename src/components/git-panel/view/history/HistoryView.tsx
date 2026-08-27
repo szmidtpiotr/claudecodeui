@@ -1,6 +1,7 @@
 import { History, RefreshCw } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { GitDiffMap, GitCommitSummary } from '../../types/types';
+import { computeGraphRows } from '../../utils/commitGraph';
 import CommitHistoryItem from './CommitHistoryItem';
 
 type HistoryViewProps = {
@@ -21,6 +22,8 @@ export default function HistoryView({
   onFetchCommitDiff,
 }: HistoryViewProps) {
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set());
+
+  const graphRows = useMemo(() => computeGraphRows(recentCommits), [recentCommits]);
 
   const toggleCommitExpanded = useCallback(
     (commitHash: string) => {
@@ -59,10 +62,11 @@ export default function HistoryView({
         </div>
       ) : (
         <div className={isMobile ? 'pb-4' : ''}>
-          {recentCommits.map((commit) => (
+          {recentCommits.map((commit, index) => (
             <CommitHistoryItem
               key={commit.hash}
               commit={commit}
+              graphRow={graphRows[index]}
               isExpanded={expandedCommits.has(commit.hash)}
               diff={commitDiffs[commit.hash]}
               isMobile={isMobile}

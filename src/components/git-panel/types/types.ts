@@ -60,6 +60,8 @@ export type GitRemoteStatus = {
 
 export type GitCommitSummary = {
   hash: string;
+  parents: string[];
+  refs: string[];
   author: string;
   email?: string;
   date: string;
