@@ -5,8 +5,9 @@ export type Provider = LLMProvider;
 export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions' | 'plan';
 
 export interface ChatImage {
-  data: string;
-  name: string;
+  data?: string;
+  name?: string;
+  path?: string;
 }
 
 export interface ToolResult {

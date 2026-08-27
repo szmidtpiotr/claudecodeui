@@ -13,6 +13,7 @@ import { getClaudePermissionSuggestion } from '../../utils/chatPermissions';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../shared/view/ui';
+import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
 import ImageLightbox from './ImageLightbox';
@@ -160,26 +161,25 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
       className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
     >
       {message.type === 'user' ? (
-        /* User message bubble on the right */
+        /* User turn on the right: claude.ai-style attachment cards above the bubble */
         (() => {
           const rawContent = String(message.content || '');
           const { text: displayText, imagePaths } = parseUserContentForImages(rawContent);
-          const inlineImages = (message.images && message.images.length > 0)
-            ? message.images.map((img) => ({ src: img.data, name: img.name }))
-            : [];
           const pathImages = selectedProject && imagePaths.length > 0
             ? imagePaths.map((p) => ({ src: buildFileUrl(p, selectedProject.projectId), name: p.split('/').pop() || 'image' }))
             : [];
-          const allImages = inlineImages.length > 0 ? inlineImages : pathImages;
           return (
         <div className="flex w-full items-end space-x-0 sm:w-auto sm:max-w-[85%] sm:space-x-3 md:max-w-md lg:max-w-lg xl:max-w-xl">
-          <div className="group flex-1 rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-white shadow-sm sm:flex-initial sm:px-4">
-            <div className="whitespace-pre-wrap break-words text-sm">
-              {displayText}
-            </div>
-            {allImages.length > 0 && showImageThumbnails && (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {allImages.map((img, idx) => (
+          <div className="flex min-w-0 flex-1 flex-col items-end gap-2 sm:flex-initial">
+            {message.images && message.images.length > 0 && (
+              <ChatMessageImages
+                images={message.images}
+                projectId={selectedProject?.projectId}
+              />
+            )}
+            {pathImages.length > 0 && showImageThumbnails && (
+              <div className="grid grid-cols-2 gap-2">
+                {pathImages.map((img, idx) => (
                   <img
                     key={img.name || idx}
                     src={img.src}
@@ -187,8 +187,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                     className="h-auto max-w-full cursor-pointer rounded-lg transition-opacity hover:opacity-90"
                     onClick={() => setLightboxSrc({ src: img.src, alt: img.name })}
                     onError={(e) => {
-                      // File-backed image failed to load (e.g. missing/corrupt on
-                      // disk). Show a visible placeholder instead of vanishing.
                       const el = e.currentTarget;
                       el.onerror = null;
                       el.removeAttribute('src');
@@ -199,9 +197,6 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                 ))}
               </div>
             )}
-            {allImages.length > 0 && !showImageThumbnails && (
-              <p className="mt-1 text-xs text-blue-200/70">{allImages.length} image{allImages.length > 1 ? 's' : ''} (thumbnails off)</p>
-            )}
             {lightboxSrc && (
               <ImageLightbox
                 src={lightboxSrc.src}
@@ -209,12 +204,24 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                 onClose={() => setLightboxSrc(null)}
               />
             )}
-            <div className="mt-1 flex items-center justify-end gap-1 text-xs text-blue-100">
-              {shouldShowUserCopyControl && (
-                <MessageCopyControl content={userCopyContent} messageType="user" />
-              )}
-              <span>{formattedTime}</span>
-            </div>
+            {userCopyContent.trim().length > 0 || !message.images?.length ? (
+              <div className="group max-w-full rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-white shadow-sm sm:px-4">
+                <div className="whitespace-pre-wrap break-words text-sm">
+                  {displayText}
+                </div>
+                <div className="mt-1 flex items-center justify-end gap-1 text-xs text-blue-100">
+                  {shouldShowUserCopyControl && (
+                    <MessageCopyControl content={userCopyContent} messageType="user" />
+                  )}
+                  <span>{formattedTime}</span>
+                </div>
+              </div>
+            ) : (
+              /* Image-only turn: no text bubble, but the timestamp still shows */
+              <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+                <span>{formattedTime}</span>
+              </div>
+            )}
           </div>
           {!isGrouped && (
             <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm text-white sm:flex">
@@ -259,9 +266,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                         ? t('messageTypes.cursor')
                         : provider === 'codex'
                           ? t('messageTypes.codex')
-                          : provider === 'gemini'
-                            ? t('messageTypes.gemini')
-                            : provider === 'opencode'
+                          : provider === 'opencode'
                               ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                               : t('messageTypes.claude'))}
               </div>

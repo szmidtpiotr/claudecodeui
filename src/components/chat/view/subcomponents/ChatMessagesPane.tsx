@@ -67,6 +67,8 @@ interface ChatMessagesPaneProps {
   collapseErrorResults?: boolean;
   selectedProject: Project;
   onForkFromMessage?: (message: ChatMessage) => void;
+  /** True while ChatComposer's floating activity/stop tab is rendered above the input. */
+  hasActivityIndicator?: boolean;
 }
 
 const ChatMessagesPane = memo(function ChatMessagesPane({
@@ -121,6 +123,7 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
   collapseErrorResults = false,
   selectedProject,
   onForkFromMessage,
+  hasActivityIndicator = false,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
   const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
@@ -156,7 +159,9 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
       ref={scrollContainerRef}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      className="relative flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-0 py-3 sm:space-y-4 sm:p-4"
+      className={`relative flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-0 sm:space-y-4 sm:px-4 pt-3 sm:pt-4 ${
+        hasActivityIndicator ? 'pb-12 sm:pb-14' : 'pb-3 sm:pb-4'
+      }`}
     >
       {isLoadingSessionMessages && chatMessages.length === 0 ? (
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400">

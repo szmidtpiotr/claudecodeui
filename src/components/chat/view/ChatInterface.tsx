@@ -182,6 +182,9 @@ function ChatInterface({
     getInputProps,
     isDragActive,
     openImagePicker,
+    queuedDraft,
+    editQueuedDraft,
+    deleteQueuedDraft,
     queuedPrompt,
     clearQueuedPrompt,
     btwNotice,
@@ -606,6 +609,7 @@ function ChatInterface({
           collapseErrorResults={collapseErrorResults}
           selectedProject={selectedProject}
           onForkFromMessage={handleForkFromMessage}
+          hasActivityIndicator={isLoading || Boolean(claudeStatus) || pendingPermissionRequests.length > 0}
         />
 
         <ChatComposer
@@ -667,6 +671,9 @@ function ChatInterface({
           currentModel={composerCurrentModel}
           onModelChange={handleModelChange}
           modelCatalogOptions={providerModelCatalog[provider as keyof typeof providerModelCatalog]?.OPTIONS}
+          queuedDraft={queuedDraft}
+          onEditQueuedDraft={editQueuedDraft}
+          onDeleteQueuedDraft={deleteQueuedDraft}
           queuedPrompt={queuedPrompt}
           onClearQueuedPrompt={clearQueuedPrompt}
           btwNotice={btwNotice}

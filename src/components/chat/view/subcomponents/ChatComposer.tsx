@@ -10,12 +10,14 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, ClockIcon, ListIcon, MicIcon, MicOffIcon, LoaderIcon } from 'lucide-react';
+import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, ArrowUpIcon, ClockIcon, ListIcon, MicIcon, MicOffIcon, LoaderIcon } from 'lucide-react';
 import type { ChatMessage, PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
+import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
+import QueuedMessageCard from './QueuedMessageCard';
 import { EffortSelector, type EffortLevel } from './EffortSelector';
 import ModelSelector from './ModelSelector';
 import ContextUsagePill from './ContextUsagePill';
@@ -108,6 +110,9 @@ interface ChatComposerProps {
   currentModel: string;
   onModelChange: (model: string) => void;
   modelCatalogOptions?: { value: string; label: string; description?: string }[];
+  queuedDraft?: QueuedDraft | null;
+  onEditQueuedDraft?: () => void;
+  onDeleteQueuedDraft?: () => void;
   queuedPrompt?: string | null;
   onClearQueuedPrompt?: () => void;
   btwNotice?: 'sent' | 'no_turn' | null;
@@ -177,6 +182,9 @@ const ChatComposer = memo(function ChatComposer({
   currentModel,
   onModelChange,
   modelCatalogOptions,
+  queuedDraft,
+  onEditQueuedDraft,
+  onDeleteQueuedDraft,
   queuedPrompt,
   onClearQueuedPrompt,
   btwNotice,
@@ -203,6 +211,23 @@ const ChatComposer = memo(function ChatComposer({
   // or while the queued-prompt banner is already occupying that space.
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
 
+  const hasQueuedDraft = Boolean(queuedDraft);
+  const canQueueDraft = isLoading && Boolean(input.trim());
+  const submitHint = canQueueDraft
+    ? hasQueuedDraft
+      ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
+      : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
+    : sendByCtrlEnter
+      ? t('input.hintText.ctrlEnter')
+      : t('input.hintText.enter');
+  const submitAriaLabel = canQueueDraft
+    ? hasQueuedDraft
+      ? t('input.queue.update', { defaultValue: 'Update queued message' })
+      : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
+    : isLoading
+      ? t('input.stop')
+      : t('input.send');
+
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="p-2 pb-2 sm:p-4 sm:pb-4 md:p-4 md:pb-6">
@@ -225,6 +250,15 @@ const ChatComposer = memo(function ChatComposer({
             handleGrantToolPermission={handleGrantToolPermission}
           />
         </div>
+      )}
+
+      {queuedDraft && (
+        <QueuedMessageCard
+          content={queuedDraft.content}
+          imageCount={queuedDraft.images.length}
+          onEdit={onEditQueuedDraft ?? (() => {})}
+          onDelete={onDeleteQueuedDraft ?? (() => {})}
+        />
       )}
 
       {!hasQuestionPanel && <div className="relative mx-auto max-w-4xl">
@@ -519,9 +553,23 @@ const ChatComposer = memo(function ChatComposer({
 
           <div className="flex flex-shrink-0 items-center pl-1">
             <PromptInputSubmit
-              disabled={!input.trim()}
+              onClick={
+                canQueueDraft
+                  ? (e: MouseEvent<HTMLButtonElement>) => {
+                      e.preventDefault();
+                      onSubmit(e);
+                    }
+                  : isLoading
+                    ? onAbortSession
+                    : undefined
+              }
+              disabled={isLoading ? false : !input.trim()}
+              aria-label={submitAriaLabel}
+              title={submitAriaLabel}
               className="h-10 w-10 sm:h-10 sm:w-10"
-            />
+            >
+              {canQueueDraft ? <ArrowUpIcon className="h-4 w-4" /> : undefined}
+            </PromptInputSubmit>
           </div>
         </PromptInputFooter>
       </PromptInput>
