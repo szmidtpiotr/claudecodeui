@@ -483,6 +483,9 @@ export function useChatSessionState({
     lastLoadedSessionKeyRef.current = sessionKey;
 
     // Fetch from server → store updates → chatMessages re-derives automatically
+    // cancelled flag prevents a stale response from a previous session overwriting
+    // results that were already applied by the current session's fetch.
+    let cancelled = false;
     setIsLoadingSessionMessages(true);
     sessionStore.fetchFromServer(selectedSession.id, {
       provider: (selectedSession.__provider || provider) as LLMProvider,
@@ -491,6 +494,7 @@ export function useChatSessionState({
       limit: MESSAGES_PER_PAGE,
       offset: 0,
     }).then(slot => {
+      if (cancelled) return;
       if (slot) {
         setHasMoreMessages(slot.hasMore);
         setTotalMessages(slot.total);
@@ -498,8 +502,9 @@ export function useChatSessionState({
       }
       setIsLoadingSessionMessages(false);
     }).catch(() => {
-      setIsLoadingSessionMessages(false);
+      if (!cancelled) setIsLoadingSessionMessages(false);
     });
+    return () => { cancelled = true; };
   }, [
     pendingViewSessionRef,
     resetStreamingState,

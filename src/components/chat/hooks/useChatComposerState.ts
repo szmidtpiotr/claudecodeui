@@ -298,6 +298,7 @@ export function useChatComposerState({
 
   const { queuedPrompt, enqueue: enqueuePrompt, clearQueue: clearQueuedPrompt } = useQueuedPrompt({
     isLoading,
+    sessionId: currentSessionId ?? selectedSession?.id,
     onFire: (text) => {
       setInput(text);
       inputValueRef.current = text;
@@ -988,12 +989,6 @@ export function useChatComposerState({
     // Clear any queued prompt when project changes — prevents leaked sends to wrong project.
     clearQueuedPrompt();
   }, [selectedProjectId]);
-
-  // Also clear queue when session changes within same project — same leak vector.
-  const selectedSessionId = selectedSession?.id;
-  useEffect(() => {
-    clearQueuedPrompt();
-  }, [selectedSessionId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
