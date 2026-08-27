@@ -12,7 +12,7 @@ import cors from 'cors';
 import mime from 'mime-types';
 import Database from 'better-sqlite3';
 
-import { AppError, WORKSPACES_ROOT, getOpenCodeDatabasePath, validateWorkspacePath } from '@/shared/utils.js';
+import { AppError, FORBIDDEN_WORKSPACE_PATHS, WORKSPACES_ROOT, getOpenCodeDatabasePath, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -1646,7 +1646,12 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
                 item.permissionsRwx = '---------';
             }
 
-            if (entry.isDirectory() && currentDepth < maxDepth) {
+            // Skip pseudo-filesystems and system-critical directories (e.g. /proc,
+            // /sys). Traversing them from a broad root like "/" causes pathologically
+            // slow walks and floods the log with EINVAL/ENOENT races on virtual files.
+            const isForbiddenSystemDir = FORBIDDEN_WORKSPACE_PATHS.includes(normalizeProjectPath(itemPath));
+
+            if (entry.isDirectory() && currentDepth < maxDepth && !isForbiddenSystemDir) {
                 // Recursively get subdirectories but limit depth
                 try {
                     // Check if we can access the directory before trying to read it
