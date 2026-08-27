@@ -8,6 +8,7 @@ import PluginTabContent from '../../plugins/view/PluginTabContent';
 import type { MainContentProps } from '../types/types';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { usePaletteOpsRegister } from '../../../contexts/PaletteOpsContext';
+import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
@@ -93,10 +94,18 @@ function MainContent({
     }
   }, [shouldShowTasksTab, activeTab, setActiveTab]);
 
+  // Resolves bare/partial file references (e.g. links inside chat messages) to
+  // real project files before opening them in the in-app editor.
+  const resolvedFileOpen = useFileOpenResolver(selectedProject, handleFileOpen);
+
   usePaletteOpsRegister({
     openFile: (filePath: string) => {
       setActiveTab('files');
       handleFileOpen(filePath);
+    },
+    // Opens the editor side panel in place, keeping the current tab (e.g. chat).
+    openFileInEditor: (filePath: string) => {
+      resolvedFileOpen(filePath);
     },
   });
 

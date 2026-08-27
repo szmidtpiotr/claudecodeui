@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Edit2, Pin, PinOff, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import { Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip } from '../../../../shared/view/ui';
+import { Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip, buttonVariants } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { SessionWithProvider } from '../../types/types';
@@ -283,13 +283,20 @@ export default function SidebarSessionItem({
       </div>
 
       <div className="hidden md:block">
-        <Button
-          variant="ghost"
+        <a
+          href={`/session/${session.id}`}
           className={cn(
+            buttonVariants({ variant: 'ghost' }),
             'w-full justify-start p-2 h-auto font-normal text-left hover:bg-accent/50 transition-colors duration-200',
             isSelected && 'bg-accent text-accent-foreground',
           )}
-          onClick={() => onSessionSelect(session, project.projectId)}
+          // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
+          // native right-click menu use the href to open a new tab/window.
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onSessionSelect(session, project.projectId);
+          }}
         >
           <div className="flex w-full min-w-0 items-start gap-2">
             <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
@@ -312,7 +319,7 @@ export default function SidebarSessionItem({
               </div>
             </div>
           </div>
-        </Button>
+        </a>
 
         <div
           ref={editingContainerRef}

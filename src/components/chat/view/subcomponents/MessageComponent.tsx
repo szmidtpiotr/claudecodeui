@@ -320,8 +320,8 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                   />
                 )}
 
-                {/* Tool Result Section */}
-                {!isToolCollapsed && message.toolResult && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
+                {/* Tool Result Section — Bash renders its output inside the command row above. */}
+                {!isToolCollapsed && message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
                   message.toolResult.isError ? (
                     // Error results - collapsible red box (auto-collapsed when collapseErrorResults is on)
                     <div

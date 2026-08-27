@@ -1,3 +1,4 @@
+export { BashCommandDisplay } from './BashCommandDisplay';
 export { CollapsibleSection } from './CollapsibleSection';
 export { ToolDiffViewer } from './ToolDiffViewer';
 export { OneLineDisplay } from './OneLineDisplay';

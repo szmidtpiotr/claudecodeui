@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { normalizeInlineCodeFences } from '../../utils/chatFormatting';
 import { transformImagePathsToMarkdown } from '../../utils/imageUrls';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
+import { usePaletteOps } from '../../../../contexts/PaletteOpsContext';
 
 type MarkdownProps = {
   children: React.ReactNode;
@@ -162,17 +163,47 @@ const ImageWithLightbox = ({ src, alt }: { src?: string; alt?: string }) => {
   );
 };
 
+// Links to the wider web (or in-page anchors) keep normal browser navigation;
+// everything else is treated as a workspace file reference.
+const isExternalHref = (href?: string): boolean =>
+  !!href && (/^(https?:|mailto:|tel:|data:)/i.test(href) || href.startsWith('#'));
+
+// Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130`).
+const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
+
+// A usable file path contains a separator or a filename with an extension.
+const looksLikeFilePath = (value?: string): value is string => {
+  if (!value) {
+    return false;
+  }
+  const cleaned = stripLineSuffix(value.trim());
+  if (!cleaned || cleaned === '#') {
+    return false;
+  }
+  return /[\\/]/.test(cleaned) || /\.[a-z0-9]+$/i.test(cleaned);
+};
+
+// Extract plain text from link children so a reference rendered only as link
+// text (e.g. `[src/foo.ts]()` with an empty href) can still be opened.
+const childrenToText = (children: React.ReactNode): string => {
+  if (typeof children === 'string' || typeof children === 'number') {
+    return String(children);
+  }
+  if (Array.isArray(children)) {
+    return children.map(childrenToText).join('');
+  }
+  if (React.isValidElement(children)) {
+    return childrenToText((children.props as { children?: React.ReactNode }).children);
+  }
+  return '';
+};
+
 const markdownComponents = {
   code: CodeBlock,
   blockquote: ({ children }: { children?: React.ReactNode }) => (
     <blockquote className="my-2 border-l-4 border-gray-300 pl-4 italic text-gray-600 dark:border-gray-600 dark:text-gray-400">
       {children}
     </blockquote>
-  ),
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a href={href} className="text-blue-600 hover:underline dark:text-blue-400" target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
   ),
   img: ImageWithLightbox,
   p: ({ children }: { children?: React.ReactNode }) => <div className="mb-2 last:mb-0">{children}</div>,
@@ -191,6 +222,7 @@ const markdownComponents = {
 };
 
 function MarkdownImpl({ children, className, projectId }: MarkdownProps) {
+  const { openFileInEditor } = usePaletteOps();
   const raw = normalizeInlineCodeFences(String(children ?? ''));
   const content = useMemo(
     () => (projectId ? transformImagePathsToMarkdown(raw, projectId) : raw),
@@ -199,9 +231,43 @@ function MarkdownImpl({ children, className, projectId }: MarkdownProps) {
   const remarkPlugins = useMemo(() => [remarkGfm, remarkMath], []);
   const rehypePlugins = useMemo(() => [rehypeKatex], []);
 
+  const components = useMemo(
+    () => ({
+      ...markdownComponents,
+      a: ({ href, children: linkChildren }: { href?: string; children?: React.ReactNode }) => {
+        // Prefer the href when it is a real path; otherwise fall back to the
+        // link text, since models often emit `[src/foo.ts]()` with an empty href.
+        const linkText = childrenToText(linkChildren);
+        const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
+
+        if (fileRef && !isExternalHref(href)) {
+          return (
+            <a
+              href={href || fileRef}
+              className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
+              onClick={(event) => {
+                event.preventDefault();
+                openFileInEditor(stripLineSuffix(fileRef));
+              }}
+            >
+              {linkChildren}
+            </a>
+          );
+        }
+
+        return (
+          <a href={href} className="text-blue-600 hover:underline dark:text-blue-400" target="_blank" rel="noopener noreferrer">
+            {linkChildren}
+          </a>
+        );
+      },
+    }),
+    [openFileInEditor],
+  );
+
   return (
     <div className={className}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents as any}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components as any}>
         {content}
       </ReactMarkdown>
     </div>
