@@ -519,9 +519,22 @@ app.get('/api/files/raw', authenticateToken, async (req, res) => {
         try { await fsPromises.access(resolved); } catch {
             return res.status(404).json({ error: 'File not found' });
         }
-        const mimeType = mime.lookup(resolved) || 'application/octet-stream';
+        // Resolve symlinks to prevent symlink escape after the path check.
+        let realResolved;
+        try { realResolved = await fsPromises.realpath(resolved); } catch {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        if (!realResolved.startsWith(wsRoot)) {
+            return res.status(403).json({ error: 'Path outside workspace root' });
+        }
+        const mimeType = mime.lookup(realResolved) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
-        const fileStream = fs.createReadStream(resolved);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        // Force download for SVG to prevent stored XSS via inline rendering.
+        if (mimeType === 'image/svg+xml') {
+            res.setHeader('Content-Disposition', 'attachment');
+        }
+        const fileStream = fs.createReadStream(realResolved);
         fileStream.on('error', () => res.status(500).json({ error: 'Error reading file' }));
         fileStream.pipe(res);
     } catch (error) {
@@ -564,12 +577,26 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
             return res.status(404).json({ error: 'File not found' });
         }
 
+        // Resolve symlinks to prevent symlink escape after the path check.
+        let realResolved;
+        try { realResolved = await fsPromises.realpath(resolved); } catch {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        if (!realResolved.startsWith(normalizedRoot)) {
+            return res.status(403).json({ error: 'Path must be under project root' });
+        }
+
         // Get file extension and set appropriate content type
-        const mimeType = mime.lookup(resolved) || 'application/octet-stream';
+        const mimeType = mime.lookup(realResolved) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        // Force download for SVG to prevent stored XSS via inline rendering.
+        if (mimeType === 'image/svg+xml') {
+            res.setHeader('Content-Disposition', 'attachment');
+        }
 
         // Stream the file
-        const fileStream = fs.createReadStream(resolved);
+        const fileStream = fs.createReadStream(realResolved);
         fileStream.pipe(res);
 
         fileStream.on('error', (error) => {
@@ -1120,11 +1147,12 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
         });
 
         const fileFilter = (req, file, cb) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+            // SVG excluded: inline base64 SVG can execute JS in certain render contexts.
+            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             if (allowedMimes.includes(file.mimetype)) {
                 cb(null, true);
             } else {
-                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
+                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'));
             }
         };
 
