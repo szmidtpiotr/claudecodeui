@@ -257,7 +257,7 @@ function ChatInterface({
   const handleWebSocketReconnect = useCallback(async () => {
     if (!selectedProject || !selectedSession) return;
     const providerVal = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
-    await sessionStore.refreshFromServer(selectedSession.id, {
+    await sessionStore.refreshLatestFromServer(selectedSession.id, {
       provider: (selectedSession.__provider || providerVal) as LLMProvider,
       // Use DB projectId; legacy folder-derived projectName is no longer accepted here.
       projectId: selectedProject.projectId,

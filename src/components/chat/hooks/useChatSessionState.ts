@@ -334,13 +334,14 @@ export function useChatSessionState({
       const previousScrollTop = container.scrollTop;
 
       try {
-        const slot = await sessionStore.fetchMore(selectedSession.id, {
+        const fetchMoreResult = await sessionStore.fetchMore(selectedSession.id, {
           provider: sessionProvider as LLMProvider,
           // DB-assigned projectId replaces the legacy folder-derived name.
           projectId: selectedProject.projectId,
           projectPath: selectedProject.fullPath || selectedProject.path || '',
           limit: MESSAGES_PER_PAGE,
         });
+        const slot = fetchMoreResult?.slot;
         if (!slot || slot.serverMessages.length === 0) return false;
 
         pendingScrollRestoreRef.current = { height: previousScrollHeight, top: previousScrollTop };
@@ -519,7 +520,7 @@ export function useChatSessionState({
 
         // Shell/external sessions have no WebSocket stream — always refresh regardless of isLoading.
         // UI-initiated sessions skip refresh during active streaming to avoid clobbering realtime data.
-        await sessionStore.refreshFromServer(selectedSession.id, {
+        await sessionStore.refreshLatestFromServer(selectedSession.id, {
           provider: (selectedSession.__provider || provider) as LLMProvider,
           projectId: selectedProject.projectId,
           projectPath: selectedProject.fullPath || selectedProject.path || '',
