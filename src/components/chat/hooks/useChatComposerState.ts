@@ -12,7 +12,7 @@ import type {
 import { useDropzone } from 'react-dropzone';
 
 import { authenticatedFetch } from '../../../utils/api';
-import { type EffortLevel, DEFAULT_EFFORT, EFFORT_LEVELS, getEffortPrefix } from '../view/subcomponents/EffortSelector';
+import { type EffortLevel, DEFAULT_EFFORT, EFFORT_LEVELS } from '../view/subcomponents/EffortSelector';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type {
@@ -720,11 +720,7 @@ export function useChatComposerState({
         }
       }
 
-      let messageContent = currentInput;
-      const effortPrefix = getEffortPrefix(effortLevel);
-      if (effortPrefix) {
-        messageContent = `${effortPrefix}: ${currentInput}`;
-      }
+      const messageContent = currentInput;
 
       if (isSubmittingRef.current) return;
       isSubmittingRef.current = true;
@@ -924,6 +920,7 @@ export function useChatComposerState({
             toolsSettings,
             permissionMode,
             model: claudeModel,
+            effort: effortLevel !== DEFAULT_EFFORT ? effortLevel : 'default',
             sessionSummary,
             images: uploadedImages,
           },

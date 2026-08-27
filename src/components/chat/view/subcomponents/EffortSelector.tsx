@@ -3,20 +3,16 @@ import { createPortal } from 'react-dom';
 import { Gauge, X } from 'lucide-react';
 
 export const EFFORT_LEVELS = [
-  { id: 'low',    label: 'low',    thinkPrefix: '' },
-  { id: 'medium', label: 'medium', thinkPrefix: 'think' },
-  { id: 'high',   label: 'high',   thinkPrefix: 'think hard' },
-  { id: 'xhigh',  label: 'xhigh',  thinkPrefix: 'think harder' },
-  { id: 'max',    label: 'max',    thinkPrefix: 'ultrathink' },
+  { id: 'low',    label: 'low' },
+  { id: 'medium', label: 'medium' },
+  { id: 'high',   label: 'high' },
+  { id: 'xhigh',  label: 'xhigh' },
+  { id: 'max',    label: 'max' },
 ] as const;
 
 export type EffortLevel = typeof EFFORT_LEVELS[number]['id'];
 
 export const DEFAULT_EFFORT: EffortLevel = 'high';
-
-export function getEffortPrefix(level: EffortLevel): string {
-  return EFFORT_LEVELS.find(e => e.id === level)?.thinkPrefix ?? '';
-}
 
 type EffortSelectorProps = {
   effortLevel: EffortLevel;
