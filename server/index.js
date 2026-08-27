@@ -1599,7 +1599,9 @@ function permToRwx(perm) {
     return r + w + x;
 }
 
-async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden = true) {
+const MAXIMUM_FILE_TREE_ENTRIES = 10_000;
+
+async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden = true, remainingEntries = { value: MAXIMUM_FILE_TREE_ENTRIES }) {
     // Using fsPromises from import
     const items = [];
 
@@ -1607,9 +1609,6 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
         const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
 
         for (const entry of entries) {
-            // Debug: log all entries including hidden files
-
-
             // Skip heavy build directories and VCS directories
             if (entry.name === 'node_modules' ||
                 entry.name === 'dist' ||
@@ -1651,12 +1650,17 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
             // slow walks and floods the log with EINVAL/ENOENT races on virtual files.
             const isForbiddenSystemDir = FORBIDDEN_WORKSPACE_PATHS.includes(normalizeProjectPath(itemPath));
 
+            if (remainingEntries.value <= 0) {
+                break;
+            }
+            remainingEntries.value -= 1;
+
             if (entry.isDirectory() && currentDepth < maxDepth && !isForbiddenSystemDir) {
                 // Recursively get subdirectories but limit depth
                 try {
                     // Check if we can access the directory before trying to read it
                     await fsPromises.access(item.path, fs.constants.R_OK);
-                    item.children = await getFileTree(item.path, maxDepth, currentDepth + 1, showHidden);
+                    item.children = await getFileTree(item.path, maxDepth, currentDepth + 1, showHidden, remainingEntries);
                 } catch (e) {
                     // Silently skip directories we can't access (permission denied, etc.)
                     item.children = [];
