@@ -26,6 +26,7 @@ const STARTER_PLUGIN_URL = 'https://github.com/cloudcli-ai/cloudcli-plugin-start
 const TERMINAL_PLUGIN_URL = 'https://github.com/cloudcli-ai/cloudcli-plugin-terminal';
 const SCHEDULED_PROMPT_PLUGIN_URL = 'https://github.com/grostim/cloudcli-cron';
 const CLAUDE_WATCH_PLUGIN_URL = 'https://github.com/satsuki19980613/cloudcli-claude-watch';
+const CODEX_USAGE_PLUGIN_URL = 'https://github.com/dongwook-chan/cloudcli-plugin-codex-usage';
 
 type PluginRecommendation = {
   id: string;
@@ -70,6 +71,14 @@ const UNOFFICIAL_PLUGIN_RECOMMENDATIONS: PluginRecommendation[] = [
     repoUrl: SCHEDULED_PROMPT_PLUGIN_URL,
     installedNames: ['workspace-scheduled-prompts'],
     icon: Clock,
+    source: 'unofficial',
+  },
+  {
+    id: 'codex-usage',
+    translationKey: 'codexUsagePlugin',
+    repoUrl: CODEX_USAGE_PLUGIN_URL,
+    installedNames: ['codex-usage'],
+    icon: BarChart3,
     source: 'unofficial',
   },
 ];

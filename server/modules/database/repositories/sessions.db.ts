@@ -5,6 +5,7 @@ import { normalizeProjectPath } from '@/shared/utils.js';
 type SessionRow = {
   session_id: string;
   provider: string;
+  provider_session_id?: string | null;
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
@@ -109,7 +110,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 0`
       )

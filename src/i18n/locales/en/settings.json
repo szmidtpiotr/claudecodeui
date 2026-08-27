@@ -514,6 +514,12 @@
       "description": "Watch long-running Claude Code sessions for hangs and expose process controls.",
       "install": "Install"
     },
+    "codexUsagePlugin": {
+      "name": "Codex Usage",
+      "badge": "unofficial",
+      "description": "Track live Codex plan limits, reset timing, and 30-day account token activity.",
+      "install": "Install"
+    },
     "morePlugins": "More",
     "enable": "Enable",
     "disable": "Disable",

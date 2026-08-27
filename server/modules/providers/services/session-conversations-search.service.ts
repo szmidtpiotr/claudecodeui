@@ -809,7 +809,7 @@ async function parseClaudeSessionMatches(
     const providerToInternalId = new Map<string, string>();
     const customNameBySessionId = new Map<string, string | null>();
     for (const candidate of targetSessions) {
-      const providerId = (candidate as Record<string, unknown>).provider_session_id as string | undefined || candidate.session_id;
+      const providerId = candidate.provider_session_id || candidate.session_id;
       providerToInternalId.set(providerId, candidate.session_id);
       customNameBySessionId.set(providerId, candidate.custom_name ?? null);
     }
