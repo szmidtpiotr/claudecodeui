@@ -250,6 +250,27 @@ export function useProjectsState({
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
+  const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(new Set());
+
+  const markSessionAttention = useCallback((targetSessionId?: string | null) => {
+    if (!targetSessionId) return;
+    setAttentionSessionIds((previous) => {
+      if (previous.has(targetSessionId)) return previous;
+      const next = new Set(previous);
+      next.add(targetSessionId);
+      return next;
+    });
+  }, []);
+
+  const clearSessionAttention = useCallback((targetSessionId?: string | null) => {
+    if (!targetSessionId) return;
+    setAttentionSessionIds((previous) => {
+      if (!previous.has(targetSessionId)) return previous;
+      const next = new Set(previous);
+      next.delete(targetSessionId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     try {
@@ -436,6 +457,8 @@ export function useProjectsState({
         if (!isSessionActive) {
           setExternalMessageUpdate((prev) => prev + 1);
         }
+      } else if (projectsMessage.updatedSessionId) {
+        markSessionAttention(projectsMessage.updatedSessionId);
       }
     }
 
@@ -499,7 +522,7 @@ export function useProjectsState({
     if (!updatedSelectedSession) {
       setSelectedSession(null);
     }
-  }, [latestMessage, selectedProject, selectedSession, activeSessions, projects]);
+  }, [latestMessage, markSessionAttention, selectedProject, selectedSession, activeSessions, projects]);
 
   useEffect(() => {
     return () => {
@@ -646,6 +669,7 @@ export function useProjectsState({
 
   const handleSessionSelect = useCallback(
     (session: ProjectSession) => {
+      clearSessionAttention(session.id);
       setSelectedSession(session);
 
       if (activeTab === 'tasks' || activeTab === 'preview') {
@@ -672,7 +696,7 @@ export function useProjectsState({
 
       navigate(`/session/${session.id}`);
     },
-    [activeTab, isMobile, navigate, selectedProject?.projectId],
+    [activeTab, clearSessionAttention, isMobile, navigate, selectedProject?.projectId],
   );
 
   const handleNewSession = useCallback(
@@ -871,8 +895,10 @@ export function useProjectsState({
       settingsInitialTab,
       onCloseSettings: () => setShowSettings(false),
       isMobile,
+      attentionSessionIds,
     }),
     [
+      attentionSessionIds,
       handleNewSession,
       handleProjectDelete,
       handleProjectSelect,
@@ -896,6 +922,7 @@ export function useProjectsState({
     selectedProject,
     selectedSession,
     activeTab,
+    attentionSessionIds,
     sidebarOpen,
     isLoadingProjects,
     loadingProgress,

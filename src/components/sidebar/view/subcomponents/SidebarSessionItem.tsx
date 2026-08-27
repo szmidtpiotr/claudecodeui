@@ -30,6 +30,7 @@ type SidebarSessionItemProps = {
   ) => void;
   isPinned: boolean;
   onTogglePin: (sessionId: string) => void;
+  needsAttention?: boolean;
   t: TFunction;
 };
 
@@ -77,10 +78,12 @@ export default function SidebarSessionItem({
   onDeleteSession,
   isPinned,
   onTogglePin,
+  needsAttention = false,
   t,
 }: SidebarSessionItemProps) {
   const sessionView = createSessionViewModel(session, currentTime, t);
   const isSelected = selectedSession?.id === session.id;
+  const showAttentionIndicator = needsAttention && !isSelected;
   const isEditing = editingSession === session.id;
   const compactSessionAge = formatCompactSessionAge(sessionView.sessionTime, currentTime);
   const editingContainerRef = useRef<HTMLDivElement>(null);
@@ -164,13 +167,23 @@ export default function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {sessionView.isActive && (
+      {(showAttentionIndicator || sessionView.isActive) && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <Tooltip content={t('tooltips.activeSessionIndicator')} position="right">
+          <Tooltip
+            content={showAttentionIndicator
+              ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
+              : t('tooltips.activeSessionIndicator')}
+            position="right"
+          >
             <div
               role="status"
-              aria-label={t('tooltips.activeSessionIndicator')}
-              className="h-2 w-2 animate-pulse rounded-full bg-green-500"
+              aria-label={showAttentionIndicator
+                ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
+                : t('tooltips.activeSessionIndicator')}
+              className={cn(
+                'h-2 w-2 animate-pulse rounded-full',
+                showAttentionIndicator ? 'bg-amber-500' : 'bg-green-500',
+              )}
             />
           </Tooltip>
         </div>

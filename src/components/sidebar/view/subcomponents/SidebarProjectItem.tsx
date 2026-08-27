@@ -50,6 +50,7 @@ type SidebarProjectItemProps = {
   onSaveEditingSession: (projectName: string, sessionId: string, summary: string, provider: LLMProvider) => void;
   pinnedSessionIds: Set<string>;
   onTogglePin: (sessionId: string) => void;
+  attentionSessionIds?: Set<string>;
   t: TFunction;
 };
 
@@ -93,6 +94,7 @@ export default function SidebarProjectItem({
   onSaveEditingSession,
   pinnedSessionIds,
   onTogglePin,
+  attentionSessionIds,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -413,6 +415,7 @@ export default function SidebarProjectItem({
         onNewSession={onNewSession}
         pinnedSessionIds={pinnedSessionIds}
         onTogglePin={onTogglePin}
+        attentionSessionIds={attentionSessionIds}
         t={t}
       />
     </div>

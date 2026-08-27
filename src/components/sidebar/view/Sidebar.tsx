@@ -41,6 +41,7 @@ function Sidebar({
   settingsInitialTab,
   onCloseSettings,
   isMobile,
+  attentionSessionIds,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
@@ -208,6 +209,7 @@ function Sidebar({
     },
     pinnedSessionIds,
     onTogglePin: togglePin,
+    attentionSessionIds,
     t,
   };
 

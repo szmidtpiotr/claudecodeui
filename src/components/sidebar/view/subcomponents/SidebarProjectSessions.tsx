@@ -34,6 +34,7 @@ type SidebarProjectSessionsProps = {
   onNewSession: (project: Project) => void;
   pinnedSessionIds: Set<string>;
   onTogglePin: (sessionId: string) => void;
+  attentionSessionIds?: Set<string>;
   t: TFunction;
 };
 
@@ -77,6 +78,7 @@ export default function SidebarProjectSessions({
   onNewSession,
   pinnedSessionIds,
   onTogglePin,
+  attentionSessionIds,
   t,
 }: SidebarProjectSessionsProps) {
   if (!isExpanded) {
@@ -145,6 +147,7 @@ export default function SidebarProjectSessions({
               onDeleteSession={onDeleteSession}
               isPinned={pinnedSessionIds.has(session.id)}
               onTogglePin={onTogglePin}
+              needsAttention={attentionSessionIds?.has(session.id) ?? false}
               t={t}
             />
           ))}
