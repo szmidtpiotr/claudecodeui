@@ -1,12 +1,36 @@
 import { FILE_STATUS_BADGE_CLASSES, FILE_STATUS_GROUPS, FILE_STATUS_LABELS } from '../constants/constants';
 import type { FileStatusCode, GitStatusResponse } from '../types/types';
 
+export function getAllStagedFiles(gitStatus: GitStatusResponse | null): string[] {
+  if (!gitStatus?.staged) return [];
+  const { modified, added, deleted, renamed } = gitStatus.staged;
+  return [
+    ...modified,
+    ...added,
+    ...deleted,
+    ...renamed.map((r) => r.to),
+  ];
+}
+
+export function getAllUnstagedFiles(gitStatus: GitStatusResponse | null): string[] {
+  if (!gitStatus) return [];
+  return [
+    ...(gitStatus.unstaged?.modified ?? []),
+    ...(gitStatus.unstaged?.deleted ?? []),
+    ...(gitStatus.untracked ?? []),
+  ];
+}
+
 export function getAllChangedFiles(gitStatus: GitStatusResponse | null): string[] {
   if (!gitStatus) {
     return [];
   }
 
-  return FILE_STATUS_GROUPS.flatMap(({ key }) => gitStatus[key] || []);
+  if (gitStatus.staged !== undefined) {
+    return [...new Set([...getAllStagedFiles(gitStatus), ...getAllUnstagedFiles(gitStatus)])];
+  }
+
+  return FILE_STATUS_GROUPS.flatMap(({ key }) => (gitStatus[key] as string[] | undefined) ?? []);
 }
 
 export function getChangedFileCount(gitStatus: GitStatusResponse | null): number {

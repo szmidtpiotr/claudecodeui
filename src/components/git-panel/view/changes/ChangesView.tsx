@@ -1,7 +1,7 @@
 import { GitBranch, GitCommit, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConfirmationRequest, FileStatusCode, GitDiffMap, GitStatusResponse } from '../../types/types';
-import { getAllChangedFiles, hasChangedFiles } from '../../utils/gitPanelUtils';
+import { getAllStagedFiles, getAllUnstagedFiles, hasChangedFiles } from '../../utils/gitPanelUtils';
 import CommitComposer from './CommitComposer';
 import FileChangeList from './FileChangeList';
 import FileStatusLegend from './FileStatusLegend';
@@ -23,6 +23,10 @@ type ChangesViewProps = {
   onGenerateCommitMessage: (files: string[]) => Promise<string | null>;
   onRequestConfirmation: (request: ConfirmationRequest) => void;
   onExpandedFilesChange: (hasExpandedFiles: boolean) => void;
+  onStageFile: (filePath: string) => Promise<void>;
+  onUnstageFile: (filePath: string) => Promise<void>;
+  onStageAll: () => Promise<void>;
+  onUnstageAll: () => Promise<void>;
 };
 
 export default function ChangesView({
@@ -42,26 +46,17 @@ export default function ChangesView({
   onGenerateCommitMessage,
   onRequestConfirmation,
   onExpandedFilesChange,
+  onStageFile,
+  onUnstageFile,
+  onStageAll,
+  onUnstageAll,
 }: ChangesViewProps) {
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
-  const changedFiles = useMemo(() => getAllChangedFiles(gitStatus), [gitStatus]);
+  // Derive staged/unstaged from actual git state (server-side staging)
+  const stagedFiles = useMemo(() => new Set(getAllStagedFiles(gitStatus)), [gitStatus]);
+  const unstagedFiles = useMemo(() => new Set(getAllUnstagedFiles(gitStatus)), [gitStatus]);
   const hasExpandedFiles = expandedFiles.size > 0;
-
-  useEffect(() => {
-    if (!gitStatus || gitStatus.error) {
-      setSelectedFiles(new Set());
-      return;
-    }
-
-    // Remove any selected files that no longer exist in the status
-    setSelectedFiles((prev) => {
-      const allFiles = new Set(getAllChangedFiles(gitStatus));
-      const next = new Set([...prev].filter((f) => allFiles.has(f)));
-      return next;
-    });
-  }, [gitStatus]);
 
   useEffect(() => {
     onExpandedFilesChange(hasExpandedFiles);
@@ -75,18 +70,6 @@ export default function ChangesView({
 
   const toggleFileExpanded = useCallback((filePath: string) => {
     setExpandedFiles((previous) => {
-      const next = new Set(previous);
-      if (next.has(filePath)) {
-        next.delete(filePath);
-      } else {
-        next.add(filePath);
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleFileSelected = useCallback((filePath: string) => {
-    setSelectedFiles((previous) => {
       const next = new Set(previous);
       if (next.has(filePath)) {
         next.delete(filePath);
@@ -121,30 +104,25 @@ export default function ChangesView({
     [onDeleteFile, onDiscardFile, onRequestConfirmation],
   );
 
-  const commitSelectedFiles = useCallback(
+  const commitStagedFiles = useCallback(
     (message: string) => {
-      return onCommitChanges(message, Array.from(selectedFiles));
+      return onCommitChanges(message, Array.from(stagedFiles));
     },
-    [onCommitChanges, selectedFiles],
+    [onCommitChanges, stagedFiles],
   );
 
   const generateMessageForSelection = useCallback(() => {
-    return onGenerateCommitMessage(Array.from(selectedFiles));
-  }, [onGenerateCommitMessage, selectedFiles]);
-
-  const unstagedFiles = useMemo(
-    () => new Set(changedFiles.filter((f) => !selectedFiles.has(f))),
-    [changedFiles, selectedFiles],
-  );
+    return onGenerateCommitMessage(Array.from(stagedFiles));
+  }, [onGenerateCommitMessage, stagedFiles]);
 
   return (
     <>
       <CommitComposer
         isMobile={isMobile}
         projectPath={projectPath}
-        selectedFileCount={selectedFiles.size}
+        selectedFileCount={stagedFiles.size}
         isHidden={hasExpandedFiles}
-        onCommit={commitSelectedFiles}
+        onCommit={commitStagedFiles}
         onGenerateMessage={generateMessageForSelection}
         onRequestConfirmation={onRequestConfirmation}
       />
@@ -193,29 +171,29 @@ export default function ChangesView({
             {/* STAGED section */}
             <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Staged ({selectedFiles.size})
+                Staged ({stagedFiles.size})
               </span>
-              {selectedFiles.size > 0 && (
+              {stagedFiles.size > 0 && (
                 <button
-                  onClick={() => setSelectedFiles(new Set())}
+                  onClick={() => void onUnstageAll()}
                   className="text-xs text-primary transition-colors hover:text-primary/80"
                 >
                   Unstage All
                 </button>
               )}
             </div>
-            {selectedFiles.size === 0 ? (
+            {stagedFiles.size === 0 ? (
               <div className="px-3 py-2 text-xs text-muted-foreground italic">No staged files</div>
             ) : (
               <FileChangeList
                 gitStatus={gitStatus}
                 gitDiff={gitDiff}
                 expandedFiles={expandedFiles}
-                selectedFiles={selectedFiles}
+                selectedFiles={stagedFiles}
                 isMobile={isMobile}
                 wrapText={wrapText}
-                filePaths={selectedFiles}
-                onToggleSelected={toggleFileSelected}
+                filePaths={stagedFiles}
+                onToggleSelected={(fp) => void onUnstageFile(fp)}
                 onToggleExpanded={toggleFileExpanded}
                 onOpenFile={(filePath) => { void onOpenFile(filePath); }}
                 onToggleWrapText={() => onWrapTextChange(!wrapText)}
@@ -230,7 +208,7 @@ export default function ChangesView({
               </span>
               {unstagedFiles.size > 0 && (
                 <button
-                  onClick={() => setSelectedFiles(new Set(changedFiles))}
+                  onClick={() => void onStageAll()}
                   className="text-xs text-primary transition-colors hover:text-primary/80"
                 >
                   Stage All
@@ -244,11 +222,11 @@ export default function ChangesView({
                 gitStatus={gitStatus}
                 gitDiff={gitDiff}
                 expandedFiles={expandedFiles}
-                selectedFiles={selectedFiles}
+                selectedFiles={stagedFiles}
                 isMobile={isMobile}
                 wrapText={wrapText}
                 filePaths={unstagedFiles}
-                onToggleSelected={toggleFileSelected}
+                onToggleSelected={(fp) => void onStageFile(fp)}
                 onToggleExpanded={toggleFileExpanded}
                 onOpenFile={(filePath) => { void onOpenFile(filePath); }}
                 onToggleWrapText={() => onWrapTextChange(!wrapText)}

@@ -11,6 +11,69 @@ import { spawnCursor } from '../cursor-cli.js';
 const router = express.Router();
 const COMMIT_DIFF_CHARACTER_LIMIT = 500_000;
 
+// Serialise per-project stage/unstage operations to prevent rapid-toggle races.
+const stagingQueues = new Map();
+
+function runInStagingQueue(projectPath, fn) {
+  const current = stagingQueues.get(projectPath) ?? Promise.resolve();
+  const next = current.then(fn, fn);
+  const handle = next.finally(() => {
+    if (stagingQueues.get(projectPath) === handle) {
+      stagingQueues.delete(projectPath);
+    }
+  });
+  stagingQueues.set(projectPath, handle);
+  return next;
+}
+
+function parseStatusPorcelainZ(raw) {
+  const staged = { modified: [], added: [], deleted: [], renamed: [] };
+  const unstaged = { modified: [], deleted: [] };
+  const untracked = [];
+  const conflicted = [];
+
+  let i = 0;
+  while (i < raw.length) {
+    const nul = raw.indexOf('\0', i);
+    if (nul === -1) break;
+    const entry = raw.slice(i, nul);
+    i = nul + 1;
+
+    if (entry.length < 3) continue;
+    const X = entry[0];
+    const Y = entry[1];
+    const filePath = entry.slice(3);
+
+    if (X === '?' && Y === '?') {
+      untracked.push(filePath);
+      continue;
+    }
+
+    if (X === 'U' || Y === 'U' || (X === 'A' && Y === 'A') || (X === 'D' && Y === 'D')) {
+      conflicted.push(filePath);
+      continue;
+    }
+
+    // Index (staged) status
+    if (X === 'M') staged.modified.push(filePath);
+    else if (X === 'A') staged.added.push(filePath);
+    else if (X === 'D') staged.deleted.push(filePath);
+    else if (X === 'R' || X === 'C') {
+      // Rename/copy: original path follows as next NUL-terminated token
+      const nul2 = raw.indexOf('\0', i);
+      const origPath = nul2 === -1 ? raw.slice(i) : raw.slice(i, nul2);
+      if (nul2 !== -1) i = nul2 + 1;
+      staged.renamed.push({ to: filePath, from: origPath });
+    }
+
+    // Working-tree (unstaged) status
+    if (Y === 'M') unstaged.modified.push(filePath);
+    else if (Y === 'D') unstaged.deleted.push(filePath);
+  }
+
+  return { staged, unstaged, untracked, conflicted };
+}
+
 function spawnAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -311,38 +374,28 @@ router.get('/status', async (req, res) => {
     const branch = await getCurrentBranchName(projectPath);
     const hasCommits = await repositoryHasCommits(projectPath);
 
-    // Get git status
-    const { stdout: statusOutput } = await spawnAsync('git', ['status', '--porcelain'], { cwd: projectPath });
+    const { stdout: statusOutput } = await spawnAsync(
+      'git', ['status', '--porcelain=v1', '-z'],
+      { cwd: projectPath },
+    );
 
-    const modified = [];
-    const added = [];
-    const deleted = [];
-    const untracked = [];
+    const { staged, unstaged, untracked, conflicted } = parseStatusPorcelainZ(statusOutput);
 
-    statusOutput.split('\n').forEach(line => {
-      if (!line.trim()) return;
-
-      const status = line.substring(0, 2);
-      const file = line.substring(3);
-
-      if (status === 'M ' || status === ' M' || status === 'MM') {
-        modified.push(file);
-      } else if (status === 'A ' || status === 'AM') {
-        added.push(file);
-      } else if (status === 'D ' || status === ' D') {
-        deleted.push(file);
-      } else if (status === '??') {
-        untracked.push(file);
-      }
-    });
+    // Flat backward-compat arrays used by the commit endpoint and legacy consumers.
+    const modified = [...new Set([...staged.modified, ...unstaged.modified])];
+    const added = staged.added;
+    const deleted = [...new Set([...staged.deleted, ...unstaged.deleted])];
 
     res.json({
       branch,
       hasCommits,
+      staged,
+      unstaged,
+      untracked,
+      conflicted,
       modified,
       added,
       deleted,
-      untracked
     });
   } catch (error) {
     const isNotGitRepo = error.message.includes('not a git repository')
@@ -1416,6 +1469,93 @@ router.post('/publish', async (req, res) => {
       error: errorMessage, 
       details: details
     });
+  }
+});
+
+// Stage a file (or all files) in the git index
+router.post('/stage', async (req, res) => {
+  const { project, file, all } = req.body;
+
+  if (!project) {
+    return res.status(400).json({ error: 'Project id is required' });
+  }
+
+  if (!all && !file) {
+    return res.status(400).json({ error: 'file or all is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    const repositoryRootPath = await getRepositoryRootPath(projectPath);
+
+    await runInStagingQueue(repositoryRootPath, async () => {
+      if (all) {
+        await spawnAsync('git', ['add', '-A'], { cwd: repositoryRootPath });
+      } else {
+        const { repositoryRelativeFilePath } = await resolveRepositoryFilePath(projectPath, file);
+        await spawnAsync('git', ['add', '--', repositoryRelativeFilePath], { cwd: repositoryRootPath });
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Git stage error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unstage a file (or all files) from the git index
+router.post('/unstage', async (req, res) => {
+  const { project, file, all } = req.body;
+
+  if (!project) {
+    return res.status(400).json({ error: 'Project id is required' });
+  }
+
+  if (!all && !file) {
+    return res.status(400).json({ error: 'file or all is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+    await validateGitRepository(projectPath);
+    const repositoryRootPath = await getRepositoryRootPath(projectPath);
+
+    await runInStagingQueue(repositoryRootPath, async () => {
+      if (all) {
+        // Unstage everything; tolerate repos with no HEAD yet
+        try {
+          await spawnAsync('git', ['reset', 'HEAD', '--'], { cwd: repositoryRootPath });
+        } catch (err) {
+          // No commits yet — use rm --cached instead
+          if (err.stderr && err.stderr.includes('unknown revision')) {
+            await spawnAsync('git', ['rm', '-r', '--cached', '.'], { cwd: repositoryRootPath });
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        const { repositoryRelativeFilePath } = await resolveRepositoryFilePath(projectPath, file);
+        try {
+          await spawnAsync(
+            'git', ['restore', '--staged', '--', repositoryRelativeFilePath],
+            { cwd: repositoryRootPath },
+          );
+        } catch {
+          // Fallback for git < 2.23
+          await spawnAsync(
+            'git', ['reset', 'HEAD', '--', repositoryRelativeFilePath],
+            { cwd: repositoryRootPath },
+          );
+        }
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Git unstage error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

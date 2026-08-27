@@ -46,6 +46,10 @@ export default function GitPanel({ selectedProject, isMobile = false, onFileOpen
     handlePublish,
     discardChanges,
     deleteUntrackedFile,
+    stageFile,
+    unstageFile,
+    stageAll,
+    unstageAll,
     fetchCommitDiff,
     generateCommitMessage,
     commitChanges,
@@ -151,6 +155,10 @@ export default function GitPanel({ selectedProject, isMobile = false, onFileOpen
               onGenerateCommitMessage={generateCommitMessage}
               onRequestConfirmation={setConfirmAction}
               onExpandedFilesChange={setHasExpandedFiles}
+              onStageFile={stageFile}
+              onUnstageFile={unstageFile}
+              onStageAll={stageAll}
+              onUnstageAll={unstageAll}
             />
           )}
 

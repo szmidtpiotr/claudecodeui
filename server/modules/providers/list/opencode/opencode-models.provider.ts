@@ -16,7 +16,6 @@ import {
   readOptionalString,
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
-// @ts-expect-error – JS utility, no types needed
 // eslint-disable-next-line boundaries/no-unknown, import-x/order
 import { loadAzureConfig, fetchAzureDeployments } from '@/utils/azure-config.js';
 

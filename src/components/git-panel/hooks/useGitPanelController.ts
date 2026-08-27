@@ -498,6 +498,52 @@ export function useGitPanelController({
     [fetchGitStatus, selectedProject],
   );
 
+  const stageFile = useCallback(
+    async (filePath: string) => {
+      if (!selectedProject) return;
+      await fetchWithAuth('/api/git/stage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: selectedProject.projectId, file: filePath }),
+      });
+      setTimeout(() => void fetchGitStatus(), 150);
+    },
+    [fetchGitStatus, selectedProject],
+  );
+
+  const unstageFile = useCallback(
+    async (filePath: string) => {
+      if (!selectedProject) return;
+      await fetchWithAuth('/api/git/unstage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: selectedProject.projectId, file: filePath }),
+      });
+      setTimeout(() => void fetchGitStatus(), 150);
+    },
+    [fetchGitStatus, selectedProject],
+  );
+
+  const stageAll = useCallback(async () => {
+    if (!selectedProject) return;
+    await fetchWithAuth('/api/git/stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: selectedProject.projectId, all: true }),
+    });
+    setTimeout(() => void fetchGitStatus(), 150);
+  }, [fetchGitStatus, selectedProject]);
+
+  const unstageAll = useCallback(async () => {
+    if (!selectedProject) return;
+    await fetchWithAuth('/api/git/unstage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: selectedProject.projectId, all: true }),
+    });
+    setTimeout(() => void fetchGitStatus(), 150);
+  }, [fetchGitStatus, selectedProject]);
+
   const fetchRecentCommits = useCallback(async () => {
     if (!selectedProject) {
       return;
@@ -783,6 +829,10 @@ export function useGitPanelController({
     handlePublish,
     discardChanges,
     deleteUntrackedFile,
+    stageFile,
+    unstageFile,
+    stageAll,
+    unstageAll,
     fetchCommitDiff,
     generateCommitMessage,
     commitChanges,

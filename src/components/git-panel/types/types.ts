@@ -18,9 +18,24 @@ export type GitPanelProps = {
   onFileOpen?: FileOpenHandler;
 };
 
+export type GitStagedFiles = {
+  modified: string[];
+  added: string[];
+  deleted: string[];
+  renamed: Array<{ to: string; from: string }>;
+};
+
+export type GitUnstagedFiles = {
+  modified: string[];
+  deleted: string[];
+};
+
 export type GitStatusResponse = {
   branch?: string;
   hasCommits?: boolean;
+  staged?: GitStagedFiles;
+  unstaged?: GitUnstagedFiles;
+  conflicted?: string[];
   modified?: string[];
   added?: string[];
   deleted?: string[];
@@ -102,6 +117,10 @@ export type GitPanelController = {
   handlePublish: () => Promise<void>;
   discardChanges: (filePath: string) => Promise<void>;
   deleteUntrackedFile: (filePath: string) => Promise<void>;
+  stageFile: (filePath: string) => Promise<void>;
+  unstageFile: (filePath: string) => Promise<void>;
+  stageAll: () => Promise<void>;
+  unstageAll: () => Promise<void>;
   fetchCommitDiff: (commitHash: string) => Promise<void>;
   generateCommitMessage: (files: string[]) => Promise<string | null>;
   commitChanges: (message: string, files: string[]) => Promise<boolean>;
