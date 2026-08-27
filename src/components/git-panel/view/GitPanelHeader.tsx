@@ -1,5 +1,5 @@
-import { AlertCircle, Check, ChevronDown, Download, GitBranch, Plus, RefreshCw, RotateCcw, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { AlertCircle, Check, ChevronDown, Download, GitBranch, Plus, RefreshCw, RotateCcw, Search, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ConfirmationRequest, GitRemoteStatus } from '../types/types';
 import NewBranchModal from './modals/NewBranchModal';
 
@@ -54,7 +54,9 @@ export default function GitPanelHeader({
 }: GitPanelHeaderProps) {
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const [showNewBranchModal, setShowNewBranchModal] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const branchSearchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -71,6 +73,17 @@ export default function GitPanelHeader({
   const behindCount = remoteStatus?.behind ?? 0;
   const remoteName = remoteStatus?.remoteName ?? 'remote';
   const anyPending = isFetching || isPulling || isPushing || isPublishing;
+
+  const filteredBranches = useMemo(() => {
+    const q = branchSearch.trim().toLowerCase();
+    return q ? branches.filter((b) => b.toLowerCase().includes(q)) : branches;
+  }, [branches, branchSearch]);
+
+  const openDropdown = () => {
+    setBranchSearch('');
+    setShowBranchDropdown(true);
+    setTimeout(() => branchSearchRef.current?.focus(), 0);
+  };
 
   const requestPullConfirmation = () => {
     onRequestConfirmation({
@@ -120,7 +133,7 @@ export default function GitPanelHeader({
         {/* Branch selector */}
         <div className="relative" ref={dropdownRef}>
           <button
-            onClick={() => setShowBranchDropdown((prev) => !prev)}
+            onClick={() => (showBranchDropdown ? setShowBranchDropdown(false) : openDropdown())}
             className={`flex items-center rounded-lg transition-colors hover:bg-accent ${isMobile ? 'space-x-1 px-2 py-1' : 'space-x-2 px-3 py-1.5'}`}
           >
             <GitBranch className={`text-muted-foreground ${isMobile ? 'h-3 w-3' : 'h-4 w-4'}`} />
@@ -149,21 +162,37 @@ export default function GitPanelHeader({
 
           {showBranchDropdown && (
             <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
-              <div className="max-h-64 overflow-y-auto py-1">
-                {branches.map((branch) => (
-                  <button
-                    key={branch}
-                    onClick={() => void handleSwitchBranch(branch)}
-                    className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                      branch === currentBranch ? 'bg-accent/50 text-foreground' : 'text-muted-foreground'
-                    }`}
-                  >
-                    <span className="flex items-center space-x-2">
-                      {branch === currentBranch && <Check className="h-3 w-3 text-primary" />}
-                      <span className={branch === currentBranch ? 'font-medium' : ''}>{branch}</span>
-                    </span>
-                  </button>
-                ))}
+              {/* Search input */}
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <input
+                  ref={branchSearchRef}
+                  type="text"
+                  value={branchSearch}
+                  onChange={(e) => setBranchSearch(e.target.value)}
+                  placeholder="Search branches…"
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+                />
+              </div>
+              <div className="max-h-56 overflow-y-auto py-1">
+                {filteredBranches.length === 0 ? (
+                  <p className="px-4 py-3 text-center text-xs text-muted-foreground">No branches match</p>
+                ) : (
+                  filteredBranches.map((branch) => (
+                    <button
+                      key={branch}
+                      onClick={() => void handleSwitchBranch(branch)}
+                      className={`w-full px-4 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                        branch === currentBranch ? 'bg-accent/50 text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      <span className="flex items-center space-x-2">
+                        {branch === currentBranch && <Check className="h-3 w-3 text-primary" />}
+                        <span className={branch === currentBranch ? 'font-medium' : ''}>{branch}</span>
+                      </span>
+                    </button>
+                  ))
+                )}
               </div>
               <div className="border-t border-border py-1">
                 <button

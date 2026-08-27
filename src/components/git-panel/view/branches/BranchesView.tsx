@@ -1,5 +1,5 @@
-import { Check, GitBranch, Globe, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Check, GitBranch, Globe, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { ConfirmationRequest, GitRemoteStatus } from '../../types/types';
 import NewBranchModal from '../modals/NewBranchModal';
 
@@ -138,9 +138,20 @@ export default function BranchesView({
   onRequestConfirmation,
 }: BranchesViewProps) {
   const [showNewBranchModal, setShowNewBranchModal] = useState(false);
+  const [search, setSearch] = useState('');
 
   const aheadCount = remoteStatus?.ahead ?? 0;
   const behindCount = remoteStatus?.behind ?? 0;
+
+  const filteredLocal = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? localBranches.filter((b) => b.toLowerCase().includes(q)) : localBranches;
+  }, [localBranches, search]);
+
+  const filteredRemote = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? remoteBranches.filter((b) => b.toLowerCase().includes(q)) : remoteBranches;
+  }, [remoteBranches, search]);
 
   const requestSwitch = (branch: string) => {
     onRequestConfirmation({
@@ -168,26 +179,34 @@ export default function BranchesView({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Create branch button */}
-      <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-        <span className="text-sm text-muted-foreground">
-          {localBranches.length} local{remoteBranches.length > 0 ? `, ${remoteBranches.length} remote` : ''}
-        </span>
+      {/* Toolbar: search + new branch */}
+      <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
+        <div className="flex flex-1 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-1.5">
+          <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search branches…"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+          />
+        </div>
         <button
           onClick={() => setShowNewBranchModal(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+          className="flex shrink-0 items-center gap-1 rounded-lg bg-primary/10 px-2.5 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+          title="New branch"
         >
           <Plus className="h-3.5 w-3.5" />
-          New branch
+          {!isMobile && <span>New</span>}
         </button>
       </div>
 
       {/* Branch list */}
       <div className="flex-1 overflow-y-auto">
-        {localBranches.length > 0 && (
+        {filteredLocal.length > 0 && (
           <>
-            <SectionHeader label="Local" count={localBranches.length} />
-            {localBranches.map((branch) => (
+            <SectionHeader label="Local" count={filteredLocal.length} />
+            {filteredLocal.map((branch) => (
               <BranchRow
                 key={`local:${branch}`}
                 name={branch}
@@ -203,10 +222,10 @@ export default function BranchesView({
           </>
         )}
 
-        {remoteBranches.length > 0 && (
+        {filteredRemote.length > 0 && (
           <>
-            <SectionHeader label="Remote" count={remoteBranches.length} />
-            {remoteBranches.map((branch) => (
+            <SectionHeader label="Remote" count={filteredRemote.length} />
+            {filteredRemote.map((branch) => (
               <BranchRow
                 key={`remote:${branch}`}
                 name={branch}
@@ -222,10 +241,10 @@ export default function BranchesView({
           </>
         )}
 
-        {localBranches.length === 0 && remoteBranches.length === 0 && (
+        {filteredLocal.length === 0 && filteredRemote.length === 0 && (
           <div className="flex h-32 flex-col items-center justify-center gap-2 text-muted-foreground">
             <GitBranch className="h-10 w-10 opacity-30" />
-            <p className="text-sm">No branches found</p>
+            <p className="text-sm">{search.trim() ? 'No branches match' : 'No branches found'}</p>
           </div>
         )}
       </div>
