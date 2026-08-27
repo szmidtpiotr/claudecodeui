@@ -244,6 +244,20 @@ export const sessionsService = {
    * Also writes a custom-title event to the session's JSONL file so the CLI
    * /resume list reflects the renamed name.
    */
+  getSessionDetails(sessionId: string): {
+    sessionId: string;
+    provider: LLMProvider;
+    projectPath: string | null;
+  } | null {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) return null;
+    return {
+      sessionId: session.session_id,
+      provider: session.provider as LLMProvider,
+      projectPath: session.project_path ?? null,
+    };
+  },
+
   async renameSessionById(sessionId: string, summary: string): Promise<{ sessionId: string; summary: string }> {
     const session = sessionsDb.getSessionById(sessionId);
     if (!session) {

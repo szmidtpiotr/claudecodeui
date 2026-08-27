@@ -249,6 +249,15 @@ export function useProjectsState({
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
+
+  const selectedProjectRef = useRef<Project | null>(null);
+  const projectsRef = useRef<Project[]>([]);
+  const sessionIdRef = useRef<string | undefined>(undefined);
+  const sessionLookupRef = useRef(false);
+
+  selectedProjectRef.current = selectedProject;
+  projectsRef.current = projects;
+  sessionIdRef.current = sessionId;
   const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
   const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(new Set());
 
@@ -534,7 +543,11 @@ export function useProjectsState({
   }, []);
 
   useEffect(() => {
-    if (!sessionId || projects.length === 0) {
+    sessionLookupRef.current = false;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) {
       return;
     }
 
@@ -616,43 +629,74 @@ export function useProjectsState({
       }
     }
 
-    // Session id is in the URL but not yet present on any project payload (common
-    // right after `session_created` + navigate, before the next projects refresh).
-    // Without a `selectedSession`, chat state clears `currentSessionId` and the
-    // UI stops reading the session store even though messages stream under this id.
+    // Session id is in the URL but not found in any loaded project payload.
+    // Guard: if already resolved for this sessionId, don't re-fetch.
     if (selectedSession?.id === sessionId) {
       return;
     }
 
-    if (!selectedProject) {
+    if (sessionLookupRef.current) {
       return;
     }
 
-    let providerFromStorage: string | null = null;
-    try {
-      providerFromStorage = localStorage.getItem('selected-provider');
-    } catch {
-      providerFromStorage = null;
-    }
+    sessionLookupRef.current = true;
+    void (async () => {
+      try {
+        const response = await api.sessionDetails(sessionId);
+        if (!response.ok) return;
 
-    const normalizedProvider: LLMProvider =
-      providerFromStorage === 'cursor'
-        ? 'cursor'
-        : providerFromStorage === 'codex'
-          ? 'codex'
-          : providerFromStorage === 'gemini'
-            ? 'gemini'
-            : providerFromStorage === 'opencode'
-              ? 'opencode'
-            : 'claude';
+        // Guard: sessionId changed while fetch was in-flight
+        if (sessionIdRef.current !== sessionId) return;
 
-    setSelectedSession({
-      id: sessionId,
-      __provider: normalizedProvider,
-      __projectId: selectedProject.projectId,
-      summary: '',
-    });
-  }, [sessionId, projects, selectedProject, selectedSession?.id, selectedSession?.__provider]);
+        const payload = (await response.json()) as {
+          data?: { sessionId: string; provider: LLMProvider; projectPath: string | null };
+        };
+        const details = payload.data;
+        if (!details) return;
+
+        // Navigate to canonical session ID if the URL used a provider-native alias
+        if (details.sessionId !== sessionId) {
+          navigate(`/session/${details.sessionId}`, { replace: true });
+          return;
+        }
+
+        const currentProjects = projectsRef.current;
+
+        // Try to match by project path; fall back to a minimal synthetic project
+        let resolvedProject: Project | null = details.projectPath
+          ? (currentProjects.find((p) => p.fullPath === details.projectPath) ?? null)
+          : null;
+
+        if (!resolvedProject && details.projectPath) {
+          resolvedProject = {
+            projectId: details.projectPath,
+            displayName: details.projectPath.split('/').pop() ?? details.projectPath,
+            fullPath: details.projectPath,
+            sessions: [],
+          } as unknown as Project;
+        }
+
+        if (!resolvedProject) {
+          resolvedProject = selectedProjectRef.current;
+        }
+
+        if (!resolvedProject) return;
+
+        if (selectedProjectRef.current?.projectId !== resolvedProject.projectId) {
+          setSelectedProject(resolvedProject);
+        }
+
+        setSelectedSession({
+          id: details.sessionId,
+          __provider: details.provider,
+          __projectId: resolvedProject.projectId,
+          summary: '',
+        });
+      } catch {
+        // Non-fatal: UI will retry on next project refresh
+      }
+    })();
+  }, [sessionId, projects, selectedProject, selectedSession?.id, selectedSession?.__provider, navigate]);
 
   const handleProjectSelect = useCallback(
     (project: Project) => {
