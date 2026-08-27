@@ -1,3 +1,5 @@
+export { default as ActionMenu } from './ActionMenu';
+export type { ActionMenuItem } from './ActionMenu';
 export { Alert, AlertTitle, AlertDescription, alertVariants } from './Alert';
 export { Badge, badgeVariants } from './Badge';
 export { Button, buttonVariants } from './Button';

@@ -200,6 +200,30 @@ export const sessionsService = {
   },
 
   /**
+   * Returns the provider-native session ID (e.g. Claude's own conversation UUID).
+   * Useful for operations that need to reference the session in provider-specific APIs.
+   */
+  getProviderSessionId(sessionId: string): string {
+    const session = sessionsDb.getSessionById(sessionId);
+    if (!session) {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    const providerSessionId = session.provider_session_id ?? session.session_id;
+    if (!providerSessionId) {
+      throw new AppError('This session ID is not available yet.', {
+        code: 'PROVIDER_SESSION_ID_NOT_AVAILABLE',
+        statusCode: 409,
+      });
+    }
+
+    return providerSessionId;
+  },
+
+  /**
    * Restores one archived session back into the active sidebar lists.
    */
   restoreSessionById(sessionId: string): { sessionId: string; isArchived: false } {

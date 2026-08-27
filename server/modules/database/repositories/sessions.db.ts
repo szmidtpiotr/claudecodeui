@@ -16,7 +16,7 @@ type SessionRow = {
 type SessionMetadataLookupRow = Pick<
   SessionRow,
   'session_id' | 'provider' | 'project_path' | 'jsonl_path' | 'custom_name' | 'isArchived' | 'created_at' | 'updated_at'
->;
+> & { provider_session_id?: string | null };
 
 function normalizeTimestamp(value?: string): string | null {
   if (!value) return null;
@@ -89,7 +89,7 @@ export const sessionsDb = {
     const db = getConnection();
     const row = db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at, provider_session_id
          FROM sessions
          WHERE session_id = ?
          ORDER BY updated_at DESC
