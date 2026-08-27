@@ -200,12 +200,13 @@ const ChatComposer = memo(function ChatComposer({
   );
 
   // Hide the thinking/status bar while any permission request is pending
+  // or while the queued-prompt banner is already occupying that space.
   const hasPendingPermissions = pendingPermissionRequests.length > 0;
 
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="p-2 pb-2 sm:p-4 sm:pb-4 md:p-4 md:pb-6">
-      {!hasPendingPermissions && (
+      {!hasPendingPermissions && !queuedPrompt && (
         <ClaudeStatus
           status={claudeStatus}
           messages={messages}

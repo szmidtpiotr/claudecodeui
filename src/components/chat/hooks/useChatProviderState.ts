@@ -26,7 +26,7 @@ const getPermissionModesForProvider = (provider: LLMProvider): PermissionMode[] 
     return ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'];
   }
   if (provider === 'opencode') {
-    return ['default'];
+    return ['default', 'acceptEdits', 'bypassPermissions'];
   }
   return ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
 };
@@ -254,13 +254,16 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   }, [providerModelCatalog.azure, azureModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
-    if (!selectedSession?.id) {
-      return;
-    }
-
-    const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null;
     const validModes = getPermissionModesForProvider(provider);
-    setPermissionMode(savedMode && validModes.includes(savedMode) ? savedMode : 'default');
+    // Prefer session-specific mode, then provider-specific, then default.
+    const sessionStored = selectedSession?.id
+      ? (localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null)
+      : null;
+    const providerStored = localStorage.getItem(`permissionMode-provider-${provider}`) as PermissionMode | null;
+    const resolved = [sessionStored, providerStored].find(
+      (m): m is PermissionMode => !!m && validModes.includes(m),
+    ) ?? 'default';
+    setPermissionMode(resolved);
   }, [selectedSession?.id, provider]);
 
   useEffect(() => {
@@ -316,6 +319,9 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
     const nextMode = modes[nextIndex];
     setPermissionMode(nextMode);
 
+    // Persist both per-session and per-provider so switching back to this
+    // provider or session restores the last-used mode.
+    localStorage.setItem(`permissionMode-provider-${provider}`, nextMode);
     if (selectedSession?.id) {
       localStorage.setItem(`permissionMode-${selectedSession.id}`, nextMode);
     }

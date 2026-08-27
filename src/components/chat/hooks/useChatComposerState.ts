@@ -35,8 +35,6 @@ type PendingViewSession = {
 // against the Android failure mode where a blank/raw-RGBA buffer is handed over
 // as image/png — it has no PNG header, so the agent gets an unreadable file.
 function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
-  // SVG is text, not a binary magic — accept as long as it's non-empty.
-  if (mimeType === 'image/svg+xml') return buf.byteLength > 0;
   const b = new Uint8Array(buf.slice(0, 12));
   const starts = (sig: number[], offset = 0) => sig.every((v, i) => b[offset + i] === v);
   // PNG
@@ -638,7 +636,11 @@ export function useChatComposerState({
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'],
+      // SVG excluded: inline base64 SVG can execute JS in certain render contexts.
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
     },
     maxSize: 5 * 1024 * 1024,
     maxFiles: 5,
@@ -895,6 +897,8 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             model: opencodeModel,
             sessionSummary,
+            permissionMode,
+            toolsSettings,
           },
         });
       } else if (provider === 'azure') {
