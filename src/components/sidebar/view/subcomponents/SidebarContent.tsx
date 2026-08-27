@@ -5,14 +5,15 @@ import { ScrollArea } from '../../../../shared/view/ui';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, SidebarSearchMode } from '../../types/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, RecentConversationListItem, SidebarSearchMode } from '../../types/types';
 import type { UnreadSessionEntry } from '../../../../hooks/useUnreadSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
+import SidebarRecentConversations from './SidebarRecentConversations';
 import SidebarUnreadPanel from './SidebarUnreadPanel';
-import { getAllSessions } from '../../utils/utils';
+import { formatCompactAge, getAllSessions } from '../../utils/utils';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -85,31 +86,6 @@ function groupArchivedSessionsByProject(sessions: ArchivedSessionListItem[]): Ar
   });
 }
 
-function formatCompactArchivedAge(dateString: string | null): string {
-  if (!dateString) {
-    return '';
-  }
-
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  const diffInMinutes = Math.floor(Math.max(0, Date.now() - date.getTime()) / (1000 * 60));
-  if (diffInMinutes < 1) {
-    return '<1m';
-  }
-  if (diffInMinutes < 60) {
-    return `${diffInMinutes}m`;
-  }
-
-  const diffInHours = Math.floor(diffInMinutes / 60);
-  if (diffInHours < 24) {
-    return `${diffInHours}hr`;
-  }
-
-  return `${Math.floor(diffInHours / 24)}d`;
-}
 
 type SidebarContentProps = {
   isPWA: boolean;
@@ -120,6 +96,12 @@ type SidebarContentProps = {
   archivedSessions: ArchivedSessionListItem[];
   archivedSessionsCount: number;
   isArchivedSessionsLoading: boolean;
+  recentConversations: RecentConversationListItem[];
+  recentConversationsTotal: number;
+  recentConversationsHasMore: boolean;
+  isRecentConversationsLoading: boolean;
+  isLoadingMoreRecentConversations: boolean;
+  recentConversationsError: boolean;
   searchFilter: string;
   onSearchFilterChange: (value: string) => void;
   onClearSearchFilter: () => void;
@@ -128,6 +110,8 @@ type SidebarContentProps = {
   conversationResults: ConversationSearchResults | null;
   isSearching: boolean;
   searchProgress: SearchProgress | null;
+  onLoadMoreRecentConversations: () => void;
+  onRetryRecentConversations: () => void;
   onRestoreArchivedProject: (projectId: string) => void;
   onArchivedSessionClick: (session: ArchivedSessionListItem) => void;
   onRestoreArchivedSession: (sessionId: string) => void;
@@ -162,6 +146,12 @@ export default function SidebarContent({
   archivedSessions,
   archivedSessionsCount,
   isArchivedSessionsLoading,
+  recentConversations,
+  recentConversationsTotal,
+  recentConversationsHasMore,
+  isRecentConversationsLoading,
+  isLoadingMoreRecentConversations,
+  recentConversationsError,
   searchFilter,
   onSearchFilterChange,
   onClearSearchFilter,
@@ -170,6 +160,8 @@ export default function SidebarContent({
   conversationResults,
   isSearching,
   searchProgress,
+  onLoadMoreRecentConversations,
+  onRetryRecentConversations,
   onRestoreArchivedProject,
   onArchivedSessionClick,
   onRestoreArchivedSession,
@@ -318,6 +310,21 @@ export default function SidebarContent({
               ))}
             </div>
           ) : null
+        ) : searchMode === 'conversations' ? (
+          <SidebarRecentConversations
+            conversations={recentConversations}
+            total={recentConversationsTotal}
+            hasMore={recentConversationsHasMore}
+            isLoading={isRecentConversationsLoading}
+            isLoadingMore={isLoadingMoreRecentConversations}
+            hasError={recentConversationsError}
+            selectedSession={projectListProps.selectedSession}
+            currentTime={projectListProps.currentTime}
+            onConversationSelect={onConversationResultClick}
+            onLoadMore={onLoadMoreRecentConversations}
+            onRetry={onRetryRecentConversations}
+            t={t}
+          />
         ) : searchMode === 'archived' ? (
           isArchivedSessionsLoading ? (
             <div className="px-4 py-12 text-center md:py-8">
@@ -427,7 +434,7 @@ export default function SidebarContent({
                                       : String(session.id))}
                                 </span>
                                 <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">
-                                  {formatCompactArchivedAge(
+                                  {formatCompactAge(
                                     typeof session.lastActivity === 'string'
                                       ? session.lastActivity
                                       : typeof session.updated_at === 'string'
@@ -435,6 +442,7 @@ export default function SidebarContent({
                                         : typeof session.created_at === 'string'
                                           ? session.created_at
                                           : null,
+                                    projectListProps.currentTime,
                                   )}
                                 </span>
                               </div>
@@ -489,7 +497,9 @@ export default function SidebarContent({
                               </span>
                               {session.lastActivity && (
                                 <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">
-                                  {formatCompactArchivedAge(session.lastActivity)}
+                                  <span className="tabular-nums">
+                                    {formatCompactAge(session.lastActivity, projectListProps.currentTime)}
+                                  </span>
                                 </span>
                               )}
                             </div>

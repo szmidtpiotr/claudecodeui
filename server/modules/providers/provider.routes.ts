@@ -58,6 +58,29 @@ const readOptionalQueryString = (value: unknown): string | undefined => {
   return normalized.length > 0 ? normalized : undefined;
 };
 
+const parseBoundedIntegerQuery = <T extends number | null>(
+  value: unknown,
+  name: string,
+  fallback: T,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+): number | T => {
+  const raw = readOptionalQueryString(value);
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new AppError(`${name} must be an integer between ${minimum} and ${maximum}.`, {
+      code: 'INVALID_QUERY_PARAMETER',
+      statusCode: 400,
+    });
+  }
+
+  return parsed;
+};
+
 const parseOptionalBooleanQuery = (value: unknown, name: string): boolean | undefined => {
   if (value === undefined) {
     return undefined;
@@ -385,6 +408,16 @@ router.post(
 
 // ----------------- Session routes -----------------
 router.get(
+  '/sessions/recent',
+  asyncHandler(async (req: Request, res: Response) => {
+    const limit = parseBoundedIntegerQuery(req.query.limit, 'limit', 40, 1, 100);
+    const offset = parseBoundedIntegerQuery(req.query.offset, 'offset', 0, 0);
+    const page = sessionsService.listRecentSessions(limit, offset);
+    res.json(createApiSuccessResponse(page));
+  }),
+);
+
+router.get(
   '/sessions/archived',
   asyncHandler(async (_req: Request, res: Response) => {
     const sessions = sessionsService.listArchivedSessions();
@@ -453,32 +486,8 @@ router.get(
   '/sessions/:sessionId/messages',
   asyncHandler(async (req: Request, res: Response) => {
     const sessionId = parseSessionId(req.params.sessionId);
-    const limitRaw = readOptionalQueryString(req.query.limit);
-    const offsetRaw = readOptionalQueryString(req.query.offset);
-
-    let limit: number | null = null;
-    if (limitRaw !== undefined) {
-      const parsedLimit = Number.parseInt(limitRaw, 10);
-      if (Number.isNaN(parsedLimit) || parsedLimit < 0) {
-        throw new AppError('limit must be a non-negative integer.', {
-          code: 'INVALID_QUERY_PARAMETER',
-          statusCode: 400,
-        });
-      }
-      limit = parsedLimit;
-    }
-
-    let offset = 0;
-    if (offsetRaw !== undefined) {
-      const parsedOffset = Number.parseInt(offsetRaw, 10);
-      if (Number.isNaN(parsedOffset) || parsedOffset < 0) {
-        throw new AppError('offset must be a non-negative integer.', {
-          code: 'INVALID_QUERY_PARAMETER',
-          statusCode: 400,
-        });
-      }
-      offset = parsedOffset;
-    }
+    const limit = parseBoundedIntegerQuery(req.query.limit, 'limit', null, 0);
+    const offset = parseBoundedIntegerQuery(req.query.offset, 'offset', 0, 0);
 
     const result = await sessionsService.fetchHistory(sessionId, {
       limit,

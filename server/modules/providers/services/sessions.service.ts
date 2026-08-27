@@ -11,6 +11,21 @@ import type {
 } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
+type RecentSessionListItem = {
+  sessionId: string;
+  provider: LLMProvider;
+  projectId: string | null;
+  projectDisplayName: string;
+  sessionTitle: string;
+  lastActivity: string | null;
+};
+
+type RecentSessionsPage = {
+  conversations: RecentSessionListItem[];
+  total: number;
+  hasMore: boolean;
+};
+
 type ArchivedSessionListItem = {
   sessionId: string;
   provider: LLMProvider;
@@ -244,6 +259,40 @@ export const sessionsService = {
    * Also writes a custom-title event to the session's JSONL file so the CLI
    * /resume list reflects the renamed name.
    */
+  /**
+   * Returns the active conversation feed in true global activity order.
+   */
+  listRecentSessions(limit: number, offset: number): RecentSessionsPage {
+    const page = sessionsDb.getRecentSessionsPage(limit, offset);
+    const projectCache = new Map<string, ReturnType<typeof projectsDb.getProjectPath>>();
+    const conversations = page.sessions.map((session) => {
+      const projectPath = session.project_path?.trim() ? session.project_path : null;
+      let project = null;
+
+      if (projectPath) {
+        if (!projectCache.has(projectPath)) {
+          projectCache.set(projectPath, projectsDb.getProjectPath(projectPath));
+        }
+        project = projectCache.get(projectPath) ?? null;
+      }
+
+      return {
+        sessionId: session.session_id,
+        provider: session.provider as LLMProvider,
+        projectId: project?.project_id ?? null,
+        projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
+        sessionTitle: session.custom_name?.trim() || session.session_id,
+        lastActivity: session.updated_at ?? session.created_at ?? null,
+      };
+    });
+
+    return {
+      conversations,
+      total: page.total,
+      hasMore: offset + conversations.length < page.total,
+    };
+  },
+
   getSessionDetails(sessionId: string): {
     sessionId: string;
     provider: LLMProvider;
