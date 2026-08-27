@@ -687,10 +687,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
       return { behavior: 'deny', message: decision.message ?? 'User denied tool use' };
     };
 
-    // Set stream-close timeout for interactive tools (Query constructor reads it synchronously). Claude Agent SDK has a default of 5s and this overrides it
-    const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
-    process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
-
     // Create a push channel so this turn runs in streaming-input mode,
     // which allows /btw mid-run injection via priority:'now' messages.
     const pushChannel = createPushChannel();
@@ -716,13 +712,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
         prompt: pushChannel.iterable,
         options: sdkOptions
       });
-    }
-
-    // Restore immediately — Query constructor already captured the value
-    if (prevStreamTimeout !== undefined) {
-      process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = prevStreamTimeout;
-    } else {
-      delete process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     }
 
     // Track the query instance and push channel for abort + /btw injection
