@@ -27,6 +27,7 @@ export type GitStatusResponse = {
   untracked?: string[];
   error?: string;
   details?: string;
+  notGitRepository?: boolean;
 };
 
 export type GitRemoteStatus = {
@@ -87,8 +88,10 @@ export type GitPanelController = {
   isPushing: boolean;
   isPublishing: boolean;
   isCreatingInitialCommit: boolean;
+  isInitializingRepository: boolean;
   operationError: string | null;
   clearOperationError: () => void;
+  initRepository: () => Promise<boolean>;
   refreshAll: () => void;
   switchBranch: (branchName: string) => Promise<boolean>;
   createBranch: (branchName: string) => Promise<boolean>;

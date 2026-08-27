@@ -61,6 +61,7 @@ export function useGitPanelController({
   const [isPushing, setIsPushing] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isCreatingInitialCommit, setIsCreatingInitialCommit] = useState(false);
+  const [isInitializingRepository, setIsInitializingRepository] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
 
   const clearOperationError = useCallback(() => setOperationError(null), []);
@@ -135,8 +136,10 @@ export function useGitPanelController({
       }
 
       if (data.error) {
-        console.error('Git status error:', data.error);
-        setGitStatus({ error: data.error, details: data.details });
+        if (!data.notGitRepository) {
+          console.error('Git status error:', data.error);
+        }
+        setGitStatus({ error: data.error, details: data.details, notGitRepository: data.notGitRepository });
         setCurrentBranch('');
         return;
       }
@@ -715,6 +718,40 @@ export function useGitPanelController({
     void fetchRecentCommits();
   }, [activeView, fetchRecentCommits, selectedProject]);
 
+  const initRepository = useCallback(async (): Promise<boolean> => {
+    if (!selectedProject) {
+      return false;
+    }
+    const projectId = selectedProject.projectId;
+    setIsInitializingRepository(true);
+    try {
+      const response = await fetchWithAuth('/api/git/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: projectId }),
+      });
+      const data = await readJson<GitOperationResponse>(response);
+      if (selectedProjectIdRef.current !== projectId) {
+        return false;
+      }
+      if (!data.success) {
+        setOperationError(data.error ?? 'Failed to initialize repository');
+        return false;
+      }
+      void fetchGitStatus();
+      void fetchBranches();
+      void fetchRemoteStatus();
+      return true;
+    } catch (error) {
+      if (selectedProjectIdRef.current === projectId) {
+        setOperationError(error instanceof Error ? error.message : 'Failed to initialize repository');
+      }
+      return false;
+    } finally {
+      setIsInitializingRepository(false);
+    }
+  }, [fetchBranches, fetchGitStatus, fetchRemoteStatus, selectedProject]);
+
   return {
     gitStatus,
     gitDiff,
@@ -732,8 +769,10 @@ export function useGitPanelController({
     isPushing,
     isPublishing,
     isCreatingInitialCommit,
+    isInitializingRepository,
     operationError,
     clearOperationError,
+    initRepository,
     refreshAll,
     switchBranch,
     createBranch,

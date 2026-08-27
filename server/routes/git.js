@@ -343,14 +343,15 @@ router.get('/status', async (req, res) => {
       untracked
     });
   } catch (error) {
-    console.error('Git status error:', error);
+    const isNotGitRepo = error.message.includes('not a git repository')
+      || error.message.includes('Project directory is not a git repository');
+    if (!isNotGitRepo) {
+      console.error('Git status error:', error);
+    }
     res.json({
-      error: error.message.includes('not a git repository') || error.message.includes('Project directory is not a git repository')
-        ? error.message
-        : 'Git operation failed',
-      details: error.message.includes('not a git repository') || error.message.includes('Project directory is not a git repository')
-        ? error.message
-        : `Failed to get git status: ${error.message}`
+      error: isNotGitRepo ? error.message : 'Git operation failed',
+      details: isNotGitRepo ? error.message : `Failed to get git status: ${error.message}`,
+      notGitRepository: isNotGitRepo || undefined,
     });
   }
 });
@@ -515,6 +516,37 @@ router.get('/file-with-diff', async (req, res) => {
   } catch (error) {
     console.error('Git file-with-diff error:', error);
     res.json({ error: error.message });
+  }
+});
+
+// Initialize git repository
+router.post('/init', async (req, res) => {
+  const { project } = req.body;
+
+  if (!project) {
+    return res.status(400).json({ error: 'Project id is required' });
+  }
+
+  try {
+    const projectPath = await getActualProjectPath(project);
+
+    let isAlreadyRepository = false;
+    try {
+      await validateGitRepository(projectPath);
+      isAlreadyRepository = true;
+    } catch {
+      // Not a repository yet — proceed with git init.
+    }
+
+    if (isAlreadyRepository) {
+      return res.json({ success: true, output: 'Repository already initialized' });
+    }
+
+    const { stdout, stderr } = await spawnAsync('git', ['init'], { cwd: projectPath });
+    res.json({ success: true, output: stdout.trim() || stderr.trim() });
+  } catch (error) {
+    console.error('Git init error:', error);
+    res.json({ success: false, error: error.stderr?.trim() || error.message });
   }
 });
 

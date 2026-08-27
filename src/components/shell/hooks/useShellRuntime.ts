@@ -127,7 +127,7 @@ export function useShellRuntime({
       return;
     }
 
-    disconnectFromShell();
+    disconnectFromShell({ suppressAutoConnect: true });
     disposeTerminal();
   }, [disconnectFromShell, disposeTerminal, isRestarting]);
 
