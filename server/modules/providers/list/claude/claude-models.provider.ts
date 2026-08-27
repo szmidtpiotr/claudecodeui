@@ -152,21 +152,59 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
       value: 'default',
       label: 'Default (recommended)',
       description: 'Opus 4.8 with 1M context · Best for everyday, complex tasks',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
     },
     {
       value: 'fable',
       label: 'Fable',
       description: 'Fable 5 · Most capable for hardest tasks · Uses limits ~2× faster than Opus',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
     },
     {
       value: 'opus',
       label: 'Opus 4.8',
       description: 'Most capable · $5/$25 per Mtok',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
     },
     {
       value: 'sonnet',
       label: 'Sonnet 5',
       description: 'Efficient for routine tasks · $3/$15 per Mtok',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
     },
     {
       value: 'haiku',

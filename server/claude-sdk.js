@@ -186,8 +186,16 @@ function matchesToolPermission(entry, toolName, input) {
  * @param {Object} options - CLI options
  * @returns {Object} SDK-compatible options
  */
+function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
+  const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
+  const allowedEfforts = selectedModel?.effort?.values?.map((v) => v.value) || [];
+  return typeof effort === 'string' && effort !== 'default' && allowedEfforts.includes(effort)
+    ? effort
+    : undefined;
+}
+
 function mapCliOptionsToSDK(options = {}) {
-  const { sessionId, cwd, toolsSettings, permissionMode } = options;
+  const { sessionId, cwd, toolsSettings, permissionMode, effort } = options;
 
   const sdkOptions = {};
 
@@ -243,10 +251,16 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.disallowedTools = settings.disallowedTools || [];
 
-  // Map model (default to sonnet)
-  // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
   sdkOptions.model = options.model || CLAUDE_FALLBACK_MODELS.DEFAULT;
-  // Model logged at query start below
+
+  const resolvedEffort = resolveClaudeEffort(
+    sdkOptions.model,
+    effort,
+    options.effortModels || CLAUDE_FALLBACK_MODELS,
+  );
+  if (resolvedEffort) {
+    sdkOptions.effort = resolvedEffort;
+  }
 
   // Map system prompt configuration
   sdkOptions.systemPrompt = {
