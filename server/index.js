@@ -1218,6 +1218,72 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
     }
 });
 
+// POST /api/assets/images - Global image upload (not tied to a project).
+// Accepts multipart/form-data with field "images", returns base64-encoded results.
+app.post('/api/assets/images', authenticateToken, async (req, res) => {
+    try {
+        const multer = (await import('multer')).default;
+        const path = (await import('path')).default;
+        const fs = (await import('fs')).promises;
+        const os = (await import('os')).default;
+
+        const storage = multer.diskStorage({
+            destination: async (req, file, cb) => {
+                const uploadDir = path.join(os.tmpdir(), 'claude-ui-uploads', String(req.user.id));
+                await fs.mkdir(uploadDir, { recursive: true });
+                cb(null, uploadDir);
+            },
+            filename: (req, file, cb) => {
+                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+                const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+                cb(null, uniqueSuffix + '-' + sanitizedName);
+            }
+        });
+
+        const fileFilter = (req, file, cb) => {
+            const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (allowedMimes.includes(file.mimetype)) {
+                cb(null, true);
+            } else {
+                cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'));
+            }
+        };
+
+        const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024, files: 5 } });
+
+        upload.array('images', 5)(req, res, async (err) => {
+            if (err) return res.status(400).json({ error: err.message });
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ error: 'No image files provided' });
+            }
+            try {
+                const processedImages = await Promise.all(
+                    req.files.map(async (file) => {
+                        const buffer = await fs.readFile(file.path);
+                        await fs.unlink(file.path);
+                        if (buffer.length === 0 || buffer.every((b) => b === 0)) {
+                            throw new Error(`Image "${file.originalname}" arrived empty — re-attach it`);
+                        }
+                        return {
+                            name: file.originalname,
+                            data: `data:${file.mimetype};base64,${buffer.toString('base64')}`,
+                            size: file.size,
+                            mimeType: file.mimetype
+                        };
+                    })
+                );
+                res.json({ images: processedImages });
+            } catch (error) {
+                await Promise.all(req.files.map(f => fs.unlink(f.path).catch(() => {})));
+                res.status(400).json({ error: error.message || 'Failed to process images' });
+            }
+        });
+    } catch (error) {
+        console.error('Error in /api/assets/images:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // POST /api/transcribe - Forward audio to Whisper ASR service and return transcription text.
 // Whisper endpoint is configured via WHISPER_URL env var (default: http://192.168.1.16:9000).
 app.post('/api/transcribe', authenticateToken, async (req, res) => {

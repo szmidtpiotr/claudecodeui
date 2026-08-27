@@ -586,7 +586,9 @@ export function useChatComposerState({
           return false;
         }
 
-        if (!file.size || file.size > 5 * 1024 * 1024) {
+        // file.size can be 0 for clipboard Blobs (browser reads lazily);
+        // only reject if size is definitely known to exceed the limit.
+        if (file.size > 5 * 1024 * 1024) {
           const fileName = file.name || 'Unknown file';
           setImageErrors((previous) => {
             const next = new Map(previous);
@@ -626,6 +628,9 @@ export function useChatComposerState({
           const buf = await file.arrayBuffer();
           if (buf.byteLength === 0) {
             return fail('Image was empty — re-attach it');
+          }
+          if (buf.byteLength > 5 * 1024 * 1024) {
+            return fail('File too large (max 5MB)');
           }
           if (!hasValidImageSignature(buf, file.type)) {
             return fail('Image looks corrupt (not a real image file) — re-attach it');
