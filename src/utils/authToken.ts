@@ -4,8 +4,27 @@ import {
 } from '../components/auth/constants';
 
 /**
- * Decodes the JWT payload and reports whether it is already past its `exp`.
- * Anything unparseable counts as expired so we never send garbage to the server.
+ * Tolerance for client/server clock skew. The server's own verification is the
+ * real authority; this check only decides whether the client should discard a
+ * token locally. Without an allowance, a browser clock running slightly ahead
+ * reads a still-server-valid token as expired and drops a fresh session.
+ */
+export const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+/**
+ * Shape check for a token we did not issue ourselves in this call (e.g. an
+ * `X-Refreshed-Token` response header). Only a value with this app's issued JWT
+ * shape — three base64url segments — may overwrite the stored auth token, so an
+ * attacker-injected or malformed header can never silently replace it.
+ */
+export const isValidRefreshedToken = (token: unknown): token is string =>
+  typeof token === 'string' &&
+  /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+
+/**
+ * Decodes the JWT payload and reports whether it is already past its `exp`,
+ * allowing for client clock skew. Anything unparseable counts as expired so we
+ * never send garbage to the server.
  */
 export const isTokenExpired = (token: string): boolean => {
   try {
@@ -16,7 +35,7 @@ export const isTokenExpired = (token: string): boolean => {
 
     const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
     const { exp } = JSON.parse(atob(normalized)) as { exp?: number };
-    return typeof exp !== 'number' || exp * 1000 <= Date.now();
+    return typeof exp !== 'number' || exp * 1000 + TOKEN_EXPIRY_SKEW_MS <= Date.now();
   } catch {
     return true;
   }
@@ -49,7 +68,15 @@ export const readRawAuthToken = (): string | null => {
   return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 };
 
-export const persistAuthToken = (token: string): void => {
+/**
+ * Persists a token that originated from an untrusted source (the refreshed-token
+ * response header). The value is validated for JWT shape first; a malformed or
+ * injected header is ignored rather than allowed to overwrite a working token.
+ */
+export const persistAuthToken = (token: unknown): void => {
+  if (!isValidRefreshedToken(token)) {
+    return;
+  }
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
 };
 
