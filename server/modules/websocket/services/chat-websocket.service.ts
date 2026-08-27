@@ -62,6 +62,7 @@ type ChatWebSocketDependencies = {
   isAzureSessionActive: (sessionId: string) => boolean;
   reconnectSessionWriter: (sessionId: string, ws: WebSocket) => boolean;
   getPendingApprovalsForSession: (sessionId: string) => unknown[];
+  injectBtwMessage?: (sessionId: string, content: string) => { ok: boolean };
   getActiveClaudeSDKSessions: () => unknown;
   getActiveCursorSessions: () => unknown;
   getActiveCodexSessions: () => unknown;
