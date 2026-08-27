@@ -80,6 +80,12 @@ export type ConfirmationRequest = {
   type: ConfirmActionType;
   message: string;
   onConfirm: () => Promise<void> | void;
+  alternateConfirmation?: {
+    label: string;
+    description: string;
+    actionLabel: string;
+    onConfirm: () => Promise<void> | void;
+  };
 };
 
 export type UseGitPanelControllerOptions = {
@@ -112,7 +118,7 @@ export type GitPanelController = {
   refreshAll: () => void;
   switchBranch: (branchName: string) => Promise<boolean>;
   createBranch: (branchName: string) => Promise<boolean>;
-  deleteBranch: (branchName: string) => Promise<boolean>;
+  deleteBranch: (branchName: string, force?: boolean) => Promise<boolean>;
   handleFetch: () => Promise<void>;
   handlePull: () => Promise<void>;
   handlePush: () => Promise<void>;

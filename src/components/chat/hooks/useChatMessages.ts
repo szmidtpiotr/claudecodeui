@@ -5,7 +5,7 @@
 
 import type { NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage, SubagentChildTool } from '../types/types';
-import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
+import { formatUsageLimitText } from '../utils/chatFormatting';
 
 type ParsedTaskNotification = {
   status: string;
@@ -102,7 +102,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             if (taskNotif.result) {
               converted.push({
                 type: 'assistant',
-                content: formatUsageLimitText(unescapeWithMathProtection(decodeHtmlEntities(taskNotif.result))),
+                content: formatUsageLimitText(taskNotif.result),
                 timestamp: msg.timestamp,
                 ...sharedMetadata,
               });
@@ -110,16 +110,14 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
           } else {
             converted.push({
               type: 'user',
-              content: unescapeWithMathProtection(decodeHtmlEntities(content)),
+              content,
               timestamp: msg.timestamp,
               images,
               ...sharedMetadata,
             });
           }
         } else {
-          let text = decodeHtmlEntities(content);
-          text = unescapeWithMathProtection(text);
-          text = formatUsageLimitText(text);
+          const text = formatUsageLimitText(content);
           converted.push({
             type: 'assistant',
             content: text,
@@ -182,7 +180,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         if (msg.content?.trim()) {
           converted.push({
             type: 'assistant',
-            content: unescapeWithMathProtection(msg.content),
+            content: msg.content,
             timestamp: msg.timestamp,
             isThinking: true,
             ...sharedMetadata,
