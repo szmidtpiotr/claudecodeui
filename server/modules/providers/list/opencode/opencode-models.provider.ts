@@ -1,7 +1,5 @@
-import { spawn } from 'node:child_process';
-
 import Database from 'better-sqlite3';
-import crossSpawn from 'cross-spawn';
+import { spawn } from 'cross-spawn';
 
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
@@ -18,8 +16,8 @@ import {
   readOptionalString,
   writeProviderSessionActiveModelChange,
 } from '@/shared/utils.js';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore – JS utility, no types needed
+// @ts-expect-error – JS utility, no types needed
+// eslint-disable-next-line boundaries/no-unknown, import-x/order
 import { loadAzureConfig, fetchAzureDeployments } from '@/utils/azure-config.js';
 
 export const OPENCODE_FALLBACK_MODELS: ProviderModelsDefinition = {
@@ -70,7 +68,6 @@ export const OPENCODE_FALLBACK_MODELS: ProviderModelsDefinition = {
 
 const OPEN_CODE_MODELS_TIMEOUT_MS = 20_000;
 const MODEL_ID_LINE = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i;
-const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 const DATE_TOKEN = /^\d{8}$/;
 const SIMPLE_NUMBER_TOKEN = /^\d$/;
 const VERSION_TOKEN = /^[a-z]\d+$/i;
@@ -217,7 +214,7 @@ const parseOpenCodeSessionModelValue = (rawModel: unknown): string | null => {
 };
 
 const runOpenCodeModelsCommand = (): Promise<string> => new Promise((resolve, reject) => {
-  const openCodeProcess = spawnFunction('opencode', ['models'], {
+  const openCodeProcess = spawn('opencode', ['models'], {
     cwd: process.cwd(),
     env: { ...process.env },
   });

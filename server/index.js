@@ -5,8 +5,8 @@ import fs, { promises as fsPromises } from 'fs';
 import path from 'path';
 import os from 'os';
 import http from 'http';
-import { spawn } from 'child_process';
 
+import { spawn } from 'cross-spawn';
 import express from 'express';
 import cors from 'cors';
 import mime from 'mime-types';

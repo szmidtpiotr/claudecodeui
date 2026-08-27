@@ -8,10 +8,10 @@
  * - TaskMaster state and metadata management
  */
 
-import { spawn } from 'child_process';
 import path from 'path';
 import { promises as fsPromises } from 'fs';
 
+import { spawn } from 'cross-spawn';
 import express from 'express';
 
 import { projectsDb } from '../modules/database/index.js';

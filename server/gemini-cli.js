@@ -1,9 +1,8 @@
-import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 
-import crossSpawn from 'cross-spawn';
+import { spawn } from 'cross-spawn';
 
 import { registerSudoRun, unregisterSudoRun } from './modules/sudo-askpass/sudo-askpass.service.js';
 import sessionManager from './sessionManager.js';
@@ -13,8 +12,6 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createNormalizedMessage } from './shared/utils.js';
 
-// Use cross-spawn on Windows for correct .cmd resolution (same pattern as cursor-cli.js)
-const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 
 let activeGeminiProcesses = new Map(); // Track active processes by session ID
 
@@ -286,7 +283,7 @@ async function spawnGemini(command, options = {}, ws) {
     Object.assign(spawnEnv, sudoRun.env);
 
     return new Promise((resolve, reject) => {
-        const geminiProcess = spawnFunction(spawnCmd, spawnArgs, {
+        const geminiProcess = spawn(spawnCmd, spawnArgs, {
             cwd: workingDir,
             stdio: ['pipe', 'pipe', 'pipe'],
             env: spawnEnv

@@ -1,9 +1,8 @@
 import { access, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 
-import crossSpawn from 'cross-spawn';
+import { spawn } from 'cross-spawn';
 
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
@@ -589,9 +588,8 @@ type CursorModelRow = {
 
 const CURSOR_MODELS_TIMEOUT_MS = 10_000;
 const CURSOR_CHATS_ROOT = path.join(os.homedir(), '.cursor', 'chats');
-const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 const ANSI_PATTERN = new RegExp(
-  // eslint-disable-next-line no-control-regex
+   
   '[\\u001B\\u009B][[\\]()#;?]*(?:'
   + '(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]'
   + '|(?:[\\dA-PR-TZcf-ntqry=><~]))',
@@ -646,7 +644,7 @@ const parseModelsOutput = (text: string): CursorModelRow[] => {
 };
 
 const runCursorListModels = (): Promise<string> => new Promise((resolve, reject) => {
-  const cursorProcess = spawnFunction('cursor-agent', ['--list-models'], {
+  const cursorProcess = spawn('cursor-agent', ['--list-models'], {
     env: { ...process.env },
   });
 

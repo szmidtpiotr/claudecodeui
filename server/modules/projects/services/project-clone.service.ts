@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
 import { access, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
+
+import { spawn } from 'cross-spawn';
 
 import { githubTokensDb } from '@/modules/database/index.js';
 import { createProject } from '@/modules/projects/services/project-management.service.js';

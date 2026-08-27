@@ -1,7 +1,6 @@
-import { spawn } from 'child_process';
 import fsSync from 'node:fs';
 
-import crossSpawn from 'cross-spawn';
+import { spawn } from 'cross-spawn';
 import Database from 'better-sqlite3';
 
 import { registerSudoRun, unregisterSudoRun } from './modules/sudo-askpass/sudo-askpass.service.js';
@@ -12,7 +11,6 @@ import { notifyRunFailed, notifyRunStopped } from './services/notification-orche
 import { createNormalizedMessage, getOpenCodeDatabasePath } from './shared/utils.js';
 import { loadAzureConfig } from './utils/azure-config.js';
 
-const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 
 const activeOpenCodeProcesses = new Map();
 
@@ -225,7 +223,7 @@ async function spawnOpenCode(command, options = {}, ws) {
       const sudoRun = registerSudoRun(ws, sessionId, 'opencode');
       Object.assign(spawnEnv, sudoRun.env);
 
-      opencodeProcess = spawnFunction('opencode', args, {
+      opencodeProcess = spawn('opencode', args, {
         cwd: workingDir,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: spawnEnv,

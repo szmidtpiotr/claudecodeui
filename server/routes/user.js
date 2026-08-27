@@ -1,8 +1,9 @@
 import express from 'express';
+import { spawn } from 'cross-spawn';
+
 import { userDb, credentialsDb } from '../modules/database/index.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getSystemGitConfig } from '../utils/gitConfig.js';
-import { spawn } from 'child_process';
 
 const router = express.Router();
 
