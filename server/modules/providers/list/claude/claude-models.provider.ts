@@ -165,7 +165,7 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'sonnet',
-      label: 'Sonnet 4.6',
+      label: 'Sonnet 5',
       description: 'Efficient for routine tasks · $3/$15 per Mtok',
     },
     {
