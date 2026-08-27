@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from 'react';
-import { Folder, Search } from 'lucide-react';
+import { AlertTriangle, Folder, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { FileTreeNode, FileTreeViewMode } from '../types/types';
 import FileTreeEmptyState from './FileTreeEmptyState';
@@ -30,6 +30,7 @@ type FileTreeBodyProps = {
   handleCancelRename?: () => void;
   renameInputRef?: RefObject<HTMLInputElement>;
   operationLoading?: boolean;
+  error?: string | null;
 };
 
 export default function FileTreeBody({
@@ -56,12 +57,19 @@ export default function FileTreeBody({
   handleCancelRename,
   renameInputRef,
   operationLoading,
+  error,
 }: FileTreeBodyProps) {
   const { t } = useTranslation();
 
   return (
     <>
-      {files.length === 0 ? (
+      {error ? (
+        <FileTreeEmptyState
+          icon={AlertTriangle}
+          title={t('fileTree.loadFailed')}
+          description={error}
+        />
+      ) : files.length === 0 ? (
         <FileTreeEmptyState
           icon={Folder}
           title={t('fileTree.noFilesFound')}

@@ -107,6 +107,7 @@
     "size": "Size",
     "modified": "Modified",
     "permissions": "Permissions",
+    "loadFailed": "Failed to load files",
     "noFilesFound": "No files found",
     "checkProjectPath": "Check if the project path is accessible",
     "noMatchesFound": "No matches found",

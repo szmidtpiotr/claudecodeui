@@ -6,12 +6,31 @@ import type { FileTreeNode } from '../types/types';
 type UseFileTreeDataResult = {
   files: FileTreeNode[];
   loading: boolean;
+  error: string | null;
   refreshFiles: () => void;
 };
+
+const DEFAULT_LOAD_ERROR = 'Unable to load the file tree for this project.';
+
+// The API reports refusals such as FILE_TREE_TOO_LARGE as { error: message }.
+// Surfacing that message tells the user why the tree is missing and what to do
+// about it, instead of leaving them with an unexplained empty tree.
+function readResponseErrorMessage(responseBody: string): string | null {
+  try {
+    const parsedBody = JSON.parse(responseBody) as unknown;
+    const message = typeof parsedBody === 'object' && parsedBody !== null && 'error' in parsedBody
+      ? (parsedBody as { error: unknown }).error
+      : null;
+    return typeof message === 'string' && message.trim() ? message : null;
+  } catch {
+    return null;
+  }
+}
 
 export function useFileTreeData(selectedProject: Project | null): UseFileTreeDataResult {
   const [files, setFiles] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -26,6 +45,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
 
     if (!projectId) {
       setFiles([]);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -42,6 +62,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
     const fetchFiles = async () => {
       if (isActive) {
         setLoading(true);
+        setError(null);
       }
       try {
         const response = await api.getFiles(projectId, { signal: abortControllerRef.current!.signal });
@@ -51,6 +72,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
           console.error('File fetch failed:', response.status, errorText);
           if (isActive) {
             setFiles([]);
+            setError(readResponseErrorMessage(errorText) ?? DEFAULT_LOAD_ERROR);
           }
           return;
         }
@@ -58,6 +80,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         const data = (await response.json()) as FileTreeNode[];
         if (isActive) {
           setFiles(data);
+          setError(null);
         }
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') {
@@ -67,6 +90,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         console.error('Error fetching files:', error);
         if (isActive) {
           setFiles([]);
+          setError(DEFAULT_LOAD_ERROR);
         }
       } finally {
         if (isActive) {
@@ -86,6 +110,7 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
   return {
     files,
     loading,
+    error,
     refreshFiles,
   };
 }

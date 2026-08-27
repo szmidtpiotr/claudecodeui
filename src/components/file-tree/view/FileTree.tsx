@@ -45,7 +45,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     }
   }, [toast]);
 
-  const { files, loading, refreshFiles } = useFileTreeData(selectedProject);
+  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
@@ -192,6 +192,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
         <FileTreeBody
           files={files}
           filteredFiles={filteredFiles}
+          error={error}
           searchQuery={searchQuery}
           viewMode={viewMode}
           expandedDirs={expandedDirs}
