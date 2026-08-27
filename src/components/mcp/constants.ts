@@ -4,7 +4,6 @@ export const MCP_PROVIDER_NAMES: Record<McpProvider, string> = {
   claude: 'Claude',
   cursor: 'Cursor',
   codex: 'Codex',
-  gemini: 'Gemini',
   opencode: 'OpenCode',
   azure: 'Azure OpenAI',
 };
@@ -13,7 +12,6 @@ export const MCP_SUPPORTED_SCOPES: Record<McpProvider, McpScope[]> = {
   claude: ['user', 'project', 'local'],
   cursor: ['user', 'project'],
   codex: ['user', 'project'],
-  gemini: ['user', 'project'],
   opencode: ['user', 'project'],
   azure: ['user', 'project'],
 };
@@ -22,7 +20,6 @@ export const MCP_SUPPORTED_TRANSPORTS: Record<McpProvider, McpTransport[]> = {
   claude: ['stdio', 'http', 'sse'],
   cursor: ['stdio', 'http'],
   codex: ['stdio', 'http'],
-  gemini: ['stdio', 'http', 'sse'],
   opencode: ['stdio', 'http'],
   azure: ['stdio', 'http'],
 };
@@ -35,7 +32,6 @@ export const MCP_PROVIDER_BUTTON_CLASSES: Record<McpProvider, string> = {
   claude: 'bg-purple-600 text-white hover:bg-purple-700',
   cursor: 'bg-purple-600 text-white hover:bg-purple-700',
   codex: 'bg-gray-800 text-white hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600',
-  gemini: 'bg-blue-600 text-white hover:bg-blue-700',
   opencode: 'bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-700 dark:hover:bg-zinc-600',
   azure: 'bg-blue-700 text-white hover:bg-blue-800',
 };
@@ -44,7 +40,6 @@ export const MCP_SUPPORTS_WORKING_DIRECTORY: Record<McpProvider, boolean> = {
   claude: false,
   cursor: false,
   codex: true,
-  gemini: true,
   opencode: false,
   azure: false,
 };

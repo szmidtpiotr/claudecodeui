@@ -598,21 +598,6 @@ export function useProjectsState({
         return;
       }
 
-      const geminiSession = project.geminiSessions?.find((session) => session.id === sessionId);
-      if (geminiSession) {
-        const shouldUpdateProject = selectedProject?.projectId !== project.projectId;
-        const shouldUpdateSession =
-          selectedSession?.id !== sessionId || selectedSession.__provider !== 'gemini';
-
-        if (shouldUpdateProject) {
-          setSelectedProject(project);
-        }
-        if (shouldUpdateSession) {
-          setSelectedSession({ ...geminiSession, __provider: 'gemini' });
-        }
-        return;
-      }
-
       const opencodeSession = project.opencodeSessions?.find((session) => session.id === sessionId);
       if (opencodeSession) {
         const shouldUpdateProject = selectedProject?.projectId !== project.projectId;

@@ -26,7 +26,6 @@ import {
 const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "claude", name: "Anthropic" },
   { id: "codex", name: "OpenAI" },
-  { id: "gemini", name: "Google" },
   { id: "cursor", name: "Cursor" },
   { id: "opencode", name: "OpenCode" },
   { id: "azure", name: "Azure OpenAI" },
@@ -47,8 +46,6 @@ type ProviderSelectionEmptyStateProps = {
   setCursorModel: (model: string) => void;
   codexModel: string;
   setCodexModel: (model: string) => void;
-  geminiModel: string;
-  setGeminiModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
   azureModel: string;
@@ -80,12 +77,10 @@ function getCurrentModel(
   c: string,
   cu: string,
   co: string,
-  g: string,
   o: string,
 ) {
   if (p === "claude") return c;
   if (p === "codex") return co;
-  if (p === "gemini") return g;
   if (p === "opencode") return o;
   return cu;
 }
@@ -96,7 +91,7 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "codex") return "Codex";
   if (p === "opencode") return "OpenCode";
   if (p === "azure") return "Azure OpenAI";
-  return "Gemini";
+  return p;
 }
 
 export default function ProviderSelectionEmptyState({
@@ -111,8 +106,6 @@ export default function ProviderSelectionEmptyState({
   setCursorModel,
   codexModel,
   setCodexModel,
-  geminiModel,
-  setGeminiModel,
   opencodeModel,
   setOpenCodeModel,
   azureModel,
@@ -144,7 +137,6 @@ export default function ProviderSelectionEmptyState({
     claudeModel,
     cursorModel,
     codexModel,
-    geminiModel,
     opencodeModel,
   );
 
@@ -164,9 +156,6 @@ export default function ProviderSelectionEmptyState({
       } else if (providerId === "codex") {
         setCodexModel(modelValue);
         localStorage.setItem("codex-model", modelValue);
-      } else if (providerId === "gemini") {
-        setGeminiModel(modelValue);
-        localStorage.setItem("gemini-model", modelValue);
       } else if (providerId === "opencode") {
         setOpenCodeModel(modelValue);
         localStorage.setItem("opencode-model", modelValue);
@@ -178,7 +167,7 @@ export default function ProviderSelectionEmptyState({
         localStorage.setItem("cursor-model", modelValue);
       }
     },
-    [setClaudeModel, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel],
+    [setClaudeModel, setCursorModel, setCodexModel, setOpenCodeModel, setAzureModel],
   );
 
   const handleModelSelect = useCallback(
@@ -316,9 +305,6 @@ export default function ProviderSelectionEmptyState({
                 }),
                 codex: t("providerSelection.readyPrompt.codex", {
                   model: codexModel,
-                }),
-                gemini: t("providerSelection.readyPrompt.gemini", {
-                  model: geminiModel,
                 }),
                 opencode: t("providerSelection.readyPrompt.opencode", {
                   model: opencodeModel,

@@ -12,7 +12,6 @@ import type {
   CodeEditorSettingsState,
   CodexPermissionMode,
   CursorPermissionsState,
-  GeminiPermissionMode,
   NotificationPreferencesState,
   ProjectSortOrder,
   SettingsMainTab,
@@ -136,7 +135,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     createDefaultNotificationPreferences()
   ));
   const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('default');
-  const [geminiPermissionMode, setGeminiPermissionMode] = useState<GeminiPermissionMode>('default');
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginProvider, setLoginProvider] = useState<ActiveLoginProvider>('');
@@ -174,12 +172,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         {},
       );
       setCodexPermissionMode(toCodexPermissionMode(savedCodexSettings.permissionMode));
-
-      const savedGeminiSettings = parseJson<{ permissionMode?: GeminiPermissionMode }>(
-        localStorage.getItem('gemini-settings'),
-        {},
-      );
-      setGeminiPermissionMode(savedGeminiSettings.permissionMode || 'default');
 
       try {
         const notificationResponse = await authenticatedFetch('/api/settings/notification-preferences');
@@ -253,11 +245,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
         lastUpdated: now,
       }));
 
-      localStorage.setItem('gemini-settings', JSON.stringify({
-        permissionMode: geminiPermissionMode,
-        lastUpdated: now,
-      }));
-
       const notificationResponse = await authenticatedFetch('/api/settings/notification-preferences', {
         method: 'PUT',
         body: JSON.stringify(notificationPreferences),
@@ -280,7 +267,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     cursorPermissions.disallowedCommands,
     cursorPermissions.skipPermissions,
     notificationPreferences,
-    geminiPermissionMode,
     projectSortOrder,
   ]);
 
@@ -383,8 +369,6 @@ export function useSettingsController({ isOpen, initialTab }: UseSettingsControl
     codexPermissionMode,
     setCodexPermissionMode,
     providerAuthStatus,
-    geminiPermissionMode,
-    setGeminiPermissionMode,
     openLoginForProvider,
     showLoginModal,
     setShowLoginModal,

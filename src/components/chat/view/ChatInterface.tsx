@@ -84,8 +84,6 @@ function ChatInterface({
     setClaudeModel,
     codexModel,
     setCodexModel,
-    geminiModel,
-    setGeminiModel,
     opencodeModel,
     setOpenCodeModel,
     azureModel,
@@ -212,7 +210,6 @@ function ChatInterface({
     cursorModel,
     claudeModel,
     codexModel,
-    geminiModel,
     opencodeModel,
     azureModel,
     isLoading,
@@ -497,11 +494,10 @@ function ChatInterface({
     };
     if (provider === 'cursor') { setCursorModel(model); persist('cursor'); }
     else if (provider === 'codex') { setCodexModel(model); persist('codex'); }
-    else if (provider === 'gemini') { setGeminiModel(model); persist('gemini'); }
     else if (provider === 'opencode') { setOpenCodeModel(model); persist('opencode'); }
     else if (provider === 'azure') { setAzureModel(model); persist('azure'); }
     else { setClaudeModel(model); persist('claude'); }
-  }, [provider, currentSessionId, selectedSession?.id, setCursorModel, setCodexModel, setGeminiModel, setOpenCodeModel, setAzureModel, setClaudeModel]);
+  }, [provider, currentSessionId, selectedSession?.id, setCursorModel, setCodexModel, setOpenCodeModel, setAzureModel, setClaudeModel]);
 
   const handleTogglePromptNav = useCallback(() => setShowPromptNav((v) => !v), []);
 
@@ -514,7 +510,6 @@ function ChatInterface({
 
   const composerCurrentModel = provider === 'cursor' ? cursorModel
     : provider === 'codex' ? codexModel
-    : provider === 'gemini' ? geminiModel
     : provider === 'opencode' ? opencodeModel
     : provider === 'azure' ? azureModel
     : claudeModel;
@@ -523,7 +518,6 @@ function ChatInterface({
     provider:
       provider === 'cursor' ? t('messageTypes.cursor')
       : provider === 'codex' ? t('messageTypes.codex')
-      : provider === 'gemini' ? t('messageTypes.gemini')
       : provider === 'opencode' ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
       : t('messageTypes.claude'),
   }), [t, provider]);
@@ -534,11 +528,9 @@ function ChatInterface({
         ? t('messageTypes.cursor')
         : provider === 'codex'
           ? t('messageTypes.codex')
-          : provider === 'gemini'
-            ? t('messageTypes.gemini')
-            : provider === 'opencode'
-              ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
-              : t('messageTypes.claude');
+          : provider === 'opencode'
+            ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
+            : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -579,8 +571,6 @@ function ChatInterface({
           setCursorModel={setCursorModel}
           codexModel={codexModel}
           setCodexModel={setCodexModel}
-          geminiModel={geminiModel}
-          setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
           azureModel={azureModel}

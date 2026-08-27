@@ -66,7 +66,6 @@ interface UseChatComposerStateArgs {
   cursorModel: string;
   claudeModel: string;
   codexModel: string;
-  geminiModel: string;
   opencodeModel: string;
   azureModel: string;
   isLoading: boolean;
@@ -202,7 +201,6 @@ export function useChatComposerState({
   cursorModel,
   claudeModel,
   codexModel,
-  geminiModel,
   opencodeModel,
   azureModel,
   isLoading,
@@ -426,11 +424,9 @@ export function useChatComposerState({
             ? cursorModel
             : provider === 'codex'
               ? codexModel
-              : provider === 'gemini'
-                ? geminiModel
-                : provider === 'opencode'
-                  ? opencodeModel
-                  : claudeModel,
+              : provider === 'opencode'
+                ? opencodeModel
+                : claudeModel,
           tokenUsage: tokenBudget,
         };
 
@@ -481,7 +477,6 @@ export function useChatComposerState({
       codexModel,
       currentSessionId,
       cursorModel,
-      geminiModel,
       opencodeModel,
       azureModel,
       handleBuiltInCommand,
@@ -812,13 +807,11 @@ export function useChatComposerState({
               ? 'cursor-tools-settings'
               : provider === 'codex'
                 ? 'codex-settings'
-                : provider === 'gemini'
-                  ? 'gemini-settings'
-                  : provider === 'opencode'
-                    ? 'opencode-settings'
-                    : provider === 'azure'
-                      ? 'azure-settings'
-                  : 'claude-settings';
+                : provider === 'opencode'
+                  ? 'opencode-settings'
+                  : provider === 'azure'
+                    ? 'azure-settings'
+                : 'claude-settings';
           const savedSettings = safeLocalStorage.getItem(settingsKey);
           if (savedSettings) {
             return JSON.parse(savedSettings);
@@ -867,22 +860,6 @@ export function useChatComposerState({
             model: codexModel,
             sessionSummary,
             permissionMode: permissionMode === 'plan' ? 'default' : permissionMode,
-          },
-        });
-      } else if (provider === 'gemini') {
-        sendMessage({
-          type: 'gemini-command',
-          command: messageContent,
-          sessionId: effectiveSessionId,
-          options: {
-            cwd: resolvedProjectPath,
-            projectPath: resolvedProjectPath,
-            sessionId: effectiveSessionId,
-            resume: Boolean(effectiveSessionId),
-            model: geminiModel,
-            sessionSummary,
-            permissionMode,
-            toolsSettings,
           },
         });
       } else if (provider === 'opencode') {
@@ -949,7 +926,6 @@ export function useChatComposerState({
       cursorModel,
       enqueuePrompt,
       executeCommand,
-      geminiModel,
       opencodeModel,
       azureModel,
       isLoading,

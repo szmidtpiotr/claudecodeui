@@ -1,7 +1,7 @@
 import { History, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import type { GitDiffMap, GitCommitSummary } from '../../types/types';
-import { computeGraphRows } from '../../utils/commitGraph';
+import { computeCommitGraph } from '../../utils/commitGraph';
 import CommitHistoryItem from './CommitHistoryItem';
 
 type HistoryViewProps = {
@@ -23,7 +23,7 @@ export default function HistoryView({
 }: HistoryViewProps) {
   const [expandedCommits, setExpandedCommits] = useState<Set<string>>(new Set());
 
-  const graphRows = useMemo(() => computeGraphRows(recentCommits), [recentCommits]);
+  const graphRows = useMemo(() => computeCommitGraph(recentCommits), [recentCommits]);
 
   const toggleCommitExpanded = useCallback(
     (commitHash: string) => {

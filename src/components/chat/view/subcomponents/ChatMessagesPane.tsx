@@ -32,8 +32,6 @@ interface ChatMessagesPaneProps {
   setCursorModel: (model: string) => void;
   codexModel: string;
   setCodexModel: (model: string) => void;
-  geminiModel: string;
-  setGeminiModel: (model: string) => void;
   opencodeModel: string;
   setOpenCodeModel: (model: string) => void;
   azureModel: string;
@@ -88,8 +86,6 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
   setCursorModel,
   codexModel,
   setCodexModel,
-  geminiModel,
-  setGeminiModel,
   opencodeModel,
   setOpenCodeModel,
   azureModel,
@@ -182,8 +178,6 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
           setCursorModel={setCursorModel}
           codexModel={codexModel}
           setCodexModel={setCodexModel}
-          geminiModel={geminiModel}
-          setGeminiModel={setGeminiModel}
           opencodeModel={opencodeModel}
           setOpenCodeModel={setOpenCodeModel}
           azureModel={azureModel}

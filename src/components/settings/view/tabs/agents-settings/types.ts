@@ -5,7 +5,6 @@ import type {
   ClaudePermissionsState,
   CursorPermissionsState,
   CodexPermissionMode,
-  GeminiPermissionMode,
   SettingsProject,
 } from '../../../types/types';
 
@@ -26,8 +25,6 @@ export type AgentsSettingsTabProps = {
   onCursorPermissionsChange: (value: CursorPermissionsState) => void;
   codexPermissionMode: CodexPermissionMode;
   onCodexPermissionModeChange: (value: CodexPermissionMode) => void;
-  geminiPermissionMode: GeminiPermissionMode;
-  onGeminiPermissionModeChange: (value: GeminiPermissionMode) => void;
   projects: SettingsProject[];
 };
 
@@ -53,7 +50,5 @@ export type AgentCategoryContentSectionProps = {
   onCursorPermissionsChange: (value: CursorPermissionsState) => void;
   codexPermissionMode: CodexPermissionMode;
   onCodexPermissionModeChange: (value: CodexPermissionMode) => void;
-  geminiPermissionMode: GeminiPermissionMode;
-  onGeminiPermissionModeChange: (value: GeminiPermissionMode) => void;
   projects: SettingsProject[];
 };

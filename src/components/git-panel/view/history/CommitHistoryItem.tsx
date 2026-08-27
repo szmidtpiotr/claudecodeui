@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
-import type { GraphRow } from '../../utils/commitGraph';
+import type { CommitGraphRow } from '../../utils/commitGraph';
 import { parseRefs } from '../../utils/commitGraph';
 import type { GitCommitSummary } from '../../types/types';
 import { getStatusBadgeClass, parseCommitFiles } from '../../utils/gitPanelUtils';
@@ -17,7 +17,7 @@ function formatDate(dateString: string): string {
 
 type CommitHistoryItemProps = {
   commit: GitCommitSummary;
-  graphRow?: GraphRow;
+  graphRow?: CommitGraphRow;
   isExpanded: boolean;
   diff?: string;
   isMobile: boolean;
@@ -54,7 +54,7 @@ export default function CommitHistoryItem({
       >
         {/* Graph strip */}
         {graphRow && (
-          <CommitGraphStrip row={graphRow} rowIndex={0} />
+          <CommitGraphStrip row={graphRow} />
         )}
 
         {/* Content */}

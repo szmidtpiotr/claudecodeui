@@ -110,6 +110,16 @@ export interface SessionSlot {
    * request calculates its offset after any latest-page refresh completes.
    */
   _historyMutationQueue: Promise<void>;
+  /**
+   * @internal Monotonic ticket per server fetch (fetch/refresh/fetchMore) and
+   * the ticket of the last response applied. Concurrent fetches for the same
+   * session can resolve out of order — e.g. the `complete` refresh racing the
+   * watcher-triggered refresh right as a queued message is flushed — and a
+   * stale response applied last would wind `serverMessages` back to a
+   * transcript that no longer matches what the user already saw.
+   */
+  _fetchSeq: number;
+  _appliedFetchSeq: number;
   status: SessionStatus;
   fetchedAt: number;
   total: number;
@@ -135,6 +145,8 @@ function createEmptySlot(): SessionSlot {
     offset: 0,
     tokenUsage: null,
     _historyMutationQueue: Promise.resolve(),
+    _fetchSeq: 0,
+    _appliedFetchSeq: 0,
   };
 }
 

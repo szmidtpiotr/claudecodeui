@@ -13,7 +13,6 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   claude: 'opus',
   cursor: 'gpt-5.3-codex',
   codex: 'gpt-5.4',
-  gemini: 'gemini-3.1-pro-preview',
   opencode: 'anthropic/claude-sonnet-4-5',
   azure: 'gpt-4o',
 };
@@ -70,9 +69,6 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   const [codexModel, setCodexModel] = useState<string>(() => {
     return localStorage.getItem('codex-model') || FALLBACK_DEFAULT_MODEL.codex;
   });
-  const [geminiModel, setGeminiModel] = useState<string>(() => {
-    return localStorage.getItem('gemini-model') || FALLBACK_DEFAULT_MODEL.gemini;
-  });
   const [opencodeModel, setOpenCodeModel] = useState<string>(() => {
     return localStorage.getItem('opencode-model') || FALLBACK_DEFAULT_MODEL.opencode;
   });
@@ -110,12 +106,6 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
       return;
     }
 
-    if (targetProvider === 'gemini') {
-      setGeminiModel(model);
-      localStorage.setItem('gemini-model', model);
-      return;
-    }
-
     if (targetProvider === 'opencode') {
       setOpenCodeModel(model);
       localStorage.setItem('opencode-model', model);
@@ -130,7 +120,7 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   }, []);
 
   const loadProviderModels = useCallback(async (options: { bypassCache?: boolean } = {}) => {
-    const providers: LLMProvider[] = ['claude', 'cursor', 'codex', 'gemini', 'opencode', 'azure'];
+    const providers: LLMProvider[] = ['claude', 'cursor', 'codex', 'opencode', 'azure'];
     const requestId = providerModelsRequestIdRef.current + 1;
     providerModelsRequestIdRef.current = requestId;
     const isHardRefresh = options.bypassCache === true;
@@ -240,10 +230,6 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
   useEffect(() => {
     reconcileModel('codex', providerModelCatalog.codex, codexModel, setCodexModel, selectedSession?.id);
   }, [providerModelCatalog.codex, codexModel, selectedSession?.id, reconcileModel]);
-
-  useEffect(() => {
-    reconcileModel('gemini', providerModelCatalog.gemini, geminiModel, setGeminiModel, selectedSession?.id);
-  }, [providerModelCatalog.gemini, geminiModel, selectedSession?.id, reconcileModel]);
 
   useEffect(() => {
     reconcileModel('opencode', providerModelCatalog.opencode, opencodeModel, setOpenCodeModel, selectedSession?.id);
@@ -371,8 +357,6 @@ export function useChatProviderState({ selectedSession, selectedProject }: UseCh
     setClaudeModel,
     codexModel,
     setCodexModel,
-    geminiModel,
-    setGeminiModel,
     opencodeModel,
     setOpenCodeModel,
     azureModel,
