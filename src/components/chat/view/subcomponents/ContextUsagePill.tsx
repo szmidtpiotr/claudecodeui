@@ -26,6 +26,12 @@ type ContextUsagePillProps = {
 
 const REFRESH_MS = 5 * 60 * 1000;
 
+// The usage tool reports an expired/invalid claude.ai cookie as a plain error
+// string; treat those as "re-auth needed" so the user gets a way out.
+function isAuthError(error: string): boolean {
+  return /session\s*key|not logged in|expired|unauthori[sz]ed|401|403/i.test(error);
+}
+
 function pctColor(pct: number): string {
   if (pct < 50) return 'text-blue-500 dark:text-blue-400';
   if (pct < 75) return 'text-amber-500 dark:text-amber-400';
@@ -156,6 +162,7 @@ export default function ContextUsagePill({ used, total, provider, onOpenSettings
 
   const allModels = usageData?.weekly?.find((b) => b.label === 'All models');
   const weeklyPct = allModels?.pct ?? null;
+  const authExpired = !!usageData?.error && isAuthError(usageData.error);
 
   return (
     <div ref={containerRef} className="relative">
@@ -187,6 +194,12 @@ export default function ContextUsagePill({ used, total, provider, onOpenSettings
           <>
             <span className="opacity-30">·</span>
             <BarChart2 className="h-3 w-3 opacity-40" />
+          </>
+        )}
+        {provider === 'claude' && authExpired && (
+          <>
+            <span className="opacity-30">·</span>
+            <BarChart2 className="h-3 w-3 text-red-500 dark:text-red-400" />
           </>
         )}
       </button>
@@ -295,9 +308,22 @@ export default function ContextUsagePill({ used, total, provider, onOpenSettings
                         )}
                       </div>
                     )}
-                    {usageData.error && (
+                    {usageData.error && isAuthError(usageData.error) ? (
+                      <div className="space-y-1">
+                        <p className="text-xs text-destructive">Session key expired.</p>
+                        {onOpenSettings && (
+                          <button
+                            type="button"
+                            onClick={() => { closePopup(); onOpenSettings(); }}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Update key in Settings →
+                          </button>
+                        )}
+                      </div>
+                    ) : usageData.error ? (
                       <p className="text-xs text-destructive">{usageData.error}</p>
-                    )}
+                    ) : null}
                   </div>
                 ) : null}
               </div>
