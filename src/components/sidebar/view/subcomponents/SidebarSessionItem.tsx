@@ -159,6 +159,7 @@ export default function SidebarSessionItem({
 
     writeSessionDragPayload(event.dataTransfer, {
       sessionId: session.id,
+      sessionTitle: sessionView.sessionName,
       sourceProjectId: project.projectId,
       provider: session.__provider,
     });

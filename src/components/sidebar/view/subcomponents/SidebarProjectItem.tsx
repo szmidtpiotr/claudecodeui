@@ -5,7 +5,7 @@ import type { TFunction } from 'i18next';
 import { Button } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
-import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
+import type { MCPServerStatus, SessionMoveConfirmation, SessionWithProvider } from '../../types/types';
 import { getTaskIndicatorStatus } from '../../utils/utils';
 import { hasSessionDragPayload, readSessionDragPayload } from '../../utils/sessionDragAndDrop';
 
@@ -46,7 +46,7 @@ type SidebarProjectItemProps = {
   ) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
-  onMoveSessionToProject: (sessionId: string, targetProjectId: string) => void | Promise<void>;
+  onMoveSessionToProject: (confirmation: SessionMoveConfirmation) => void;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
@@ -154,7 +154,12 @@ export default function SidebarProjectItem({
       return;
     }
 
-    void onMoveSessionToProject(payload.sessionId, project.projectId);
+    onMoveSessionToProject({
+      sessionId: payload.sessionId,
+      sessionTitle: payload.sessionTitle,
+      targetProjectId: project.projectId,
+      targetProjectName: project.displayName || project.projectId,
+    });
   };
 
   const selectAndToggleProject = () => {

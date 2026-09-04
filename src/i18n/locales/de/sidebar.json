@@ -137,5 +137,12 @@
     "deleteAllData": "Alle Daten dauerhaft löschen",
     "allConversationsDeleted": "Das Projekt wird aus der Seitenleiste entfernt. Deine Dateien, Erinnerungen und Sitzungsdaten bleiben erhalten.",
     "cannotUndo": "Du kannst das Projekt später erneut hinzufügen."
+  },
+  "moveConfirmation": {
+    "moveSession": "Sitzung verschieben",
+    "confirmMove": "Verschiebe",
+    "intoProject": "nach",
+    "movingSession": "Wird verschoben…",
+    "staleHistoryNotice": "Der Gesprächsverlauf verweist weiterhin auf Dateien im ursprünglichen Projekt; beim Fortsetzen können die Pfade ins Leere zeigen."
   }
 }

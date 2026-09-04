@@ -12,6 +12,7 @@ import type {
   RecentConversationListItem,
   SidebarSearchMode,
   SessionDeleteConfirmation,
+  SessionMoveConfirmation,
   SessionWithProvider,
 } from '../types/types';
 import {
@@ -138,6 +139,8 @@ export function useSidebarController({
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
+  const [sessionMoveConfirmation, setSessionMoveConfirmation] = useState<SessionMoveConfirmation | null>(null);
+  const [isMovingSession, setIsMovingSession] = useState(false);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
@@ -983,32 +986,49 @@ export function useSidebarController({
   );
 
   /**
-   * Moves one session into another project via drag & drop.
+   * Opens the confirmation for a session dropped onto another project.
+   */
+  const requestSessionMove = useCallback((confirmation: SessionMoveConfirmation) => {
+    setSessionMoveConfirmation(confirmation);
+  }, []);
+
+  const cancelSessionMove = useCallback(() => {
+    setSessionMoveConfirmation(null);
+  }, []);
+
+  /**
+   * Moves the confirmed session into its target project.
    *
    * The backend relocates the transcript file, so the sidebar has to reload
    * both project lists and the conversation feed afterwards rather than
    * patching the moved entry in place.
    */
-  const moveSessionToProject = useCallback(
-    async (sessionId: string, targetProjectId: string) => {
-      try {
-        const response = await api.moveSessionToProject(sessionId, targetProjectId);
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          const message = payload?.error?.message;
-          console.error('[Sidebar] Failed to move session:', response.status, message);
-          alert(message || t('messages.moveSessionFailed'));
-          return;
-        }
+  const confirmSessionMove = useCallback(async () => {
+    if (!sessionMoveConfirmation) {
+      return;
+    }
 
-        await refreshProjects();
-      } catch (error) {
-        console.error('[Sidebar] Error moving session:', error);
-        alert(t('messages.moveSessionFailed'));
+    const { sessionId, targetProjectId } = sessionMoveConfirmation;
+    setIsMovingSession(true);
+    try {
+      const response = await api.moveSessionToProject(sessionId, targetProjectId);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const message = payload?.error?.message;
+        console.error('[Sidebar] Failed to move session:', response.status, message);
+        alert(message || t('messages.moveSessionFailed'));
+        return;
       }
-    },
-    [refreshProjects, t],
-  );
+
+      setSessionMoveConfirmation(null);
+      await refreshProjects();
+    } catch (error) {
+      console.error('[Sidebar] Error moving session:', error);
+      alert(t('messages.moveSessionFailed'));
+    } finally {
+      setIsMovingSession(false);
+    }
+  }, [refreshProjects, sessionMoveConfirmation, t]);
 
   const collapseSidebar = useCallback(() => {
     setSidebarVisible(false);
@@ -1068,7 +1088,11 @@ export function useSidebarController({
     restoreArchivedSession,
     refreshProjects,
     updateSessionSummary,
-    moveSessionToProject,
+    sessionMoveConfirmation,
+    isMovingSession,
+    requestSessionMove,
+    cancelSessionMove,
+    confirmSessionMove,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

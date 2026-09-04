@@ -144,5 +144,12 @@
     "deleteAllData": "Eliminar todos los datos permanentemente",
     "allConversationsDeleted": "El proyecto se quitará de la barra lateral. Tus archivos, memorias y datos de sesión se conservarán.",
     "cannotUndo": "Puedes volver a añadir el proyecto más tarde."
+  },
+  "moveConfirmation": {
+    "moveSession": "Mover sesión",
+    "confirmMove": "Mover",
+    "intoProject": "a",
+    "movingSession": "Moviendo…",
+    "staleHistoryNotice": "El historial de la conversación sigue haciendo referencia a archivos del proyecto original, por lo que al reanudarla las rutas pueden no existir."
   }
 }

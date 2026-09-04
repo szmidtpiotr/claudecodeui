@@ -145,5 +145,12 @@
     "deleteAllData": "Delete all data permanently",
     "allConversationsDeleted": "The project will be removed from the sidebar. Your files, memories, and session data will be preserved.",
     "cannotUndo": "You can re-add the project later."
+  },
+  "moveConfirmation": {
+    "moveSession": "Move session",
+    "confirmMove": "Move",
+    "intoProject": "into",
+    "movingSession": "Moving…",
+    "staleHistoryNotice": "The conversation history still refers to files in the original project, so resuming it there may point at paths that no longer exist."
   }
 }

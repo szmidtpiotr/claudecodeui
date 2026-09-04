@@ -41,6 +41,15 @@ export type SessionDeleteConfirmation = {
   isArchived: boolean;
 };
 
+// Drag & drop is easy to trigger by accident and the moved transcript keeps
+// referencing the old project's file paths, so a move is confirmed first.
+export type SessionMoveConfirmation = {
+  sessionId: string;
+  sessionTitle: string;
+  targetProjectId: string;
+  targetProjectName: string;
+};
+
 export type SidebarProps = {
   projects: Project[];
   selectedProject: Project | null;

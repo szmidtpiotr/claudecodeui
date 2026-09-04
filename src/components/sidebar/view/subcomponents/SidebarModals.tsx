@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import ReactDOM from 'react-dom';
-import { AlertTriangle, EyeOff, Trash2 } from 'lucide-react';
+import { AlertTriangle, EyeOff, FolderInput, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../../shared/view/ui';
 import Settings from '../../../settings/view/Settings';
@@ -9,7 +9,12 @@ import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { InstallMode } from '../../../../hooks/useVersionCheck';
 import { normalizeProjectForSettings } from '../../utils/utils';
-import type { DeleteProjectConfirmation, SessionDeleteConfirmation, SettingsProject } from '../../types/types';
+import type {
+  DeleteProjectConfirmation,
+  SessionDeleteConfirmation,
+  SessionMoveConfirmation,
+  SettingsProject,
+} from '../../types/types';
 import ProjectCreationWizard from '../../../project-creation-wizard';
 
 type SidebarModalsProps = {
@@ -26,6 +31,10 @@ type SidebarModalsProps = {
   sessionDeleteConfirmation: SessionDeleteConfirmation | null;
   onCancelDeleteSession: () => void;
   onConfirmDeleteSession: (hardDelete?: boolean) => void;
+  sessionMoveConfirmation: SessionMoveConfirmation | null;
+  isMovingSession: boolean;
+  onCancelMoveSession: () => void;
+  onConfirmMoveSession: () => void;
   showVersionModal: boolean;
   onCloseVersionModal: () => void;
   releaseInfo: ReleaseInfo | null;
@@ -62,6 +71,10 @@ export default function SidebarModals({
   sessionDeleteConfirmation,
   onCancelDeleteSession,
   onConfirmDeleteSession,
+  sessionMoveConfirmation,
+  isMovingSession,
+  onCancelMoveSession,
+  onConfirmMoveSession,
   showVersionModal,
   onCloseVersionModal,
   releaseInfo,
@@ -200,6 +213,65 @@ export default function SidebarModals({
                   {t('deleteConfirmation.deleteSessionPermanently', 'Delete permanently')}
                 </Button>
                 <Button variant="ghost" className="w-full" onClick={onCancelDeleteSession}>
+                  {t('actions.cancel')}
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {sessionMoveConfirmation &&
+        ReactDOM.createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+                    <FolderInput className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="mb-2 text-lg font-semibold text-foreground">
+                      {t('moveConfirmation.moveSession', 'Move session')}
+                    </h3>
+                    <p className="mb-1 text-sm text-muted-foreground">
+                      {t('moveConfirmation.confirmMove', 'Move')}{' '}
+                      <span className="font-medium text-foreground">
+                        {sessionMoveConfirmation.sessionTitle || t('sessions.unnamed')}
+                      </span>{' '}
+                      {t('moveConfirmation.intoProject', 'into')}{' '}
+                      <span className="font-medium text-foreground">
+                        {sessionMoveConfirmation.targetProjectName}
+                      </span>
+                      ?
+                    </p>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {t(
+                        'moveConfirmation.staleHistoryNotice',
+                        'The conversation history still refers to files in the original project, so resuming it there may point at paths that no longer exist.',
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 border-t border-border bg-muted/30 p-4">
+                <Button
+                  variant="default"
+                  className="w-full justify-start"
+                  onClick={onConfirmMoveSession}
+                  disabled={isMovingSession}
+                >
+                  <FolderInput className="mr-2 h-4 w-4" />
+                  {isMovingSession
+                    ? t('moveConfirmation.movingSession', 'Moving…')
+                    : t('moveConfirmation.moveSession', 'Move session')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={onCancelMoveSession}
+                  disabled={isMovingSession}
+                >
                   {t('actions.cancel')}
                 </Button>
               </div>

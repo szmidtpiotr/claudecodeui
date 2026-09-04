@@ -9,6 +9,7 @@ export const SESSION_DRAG_MIME_TYPE = 'application/x-cloudcli-session';
 
 export type SessionDragPayload = {
   sessionId: string;
+  sessionTitle: string;
   sourceProjectId: string;
   provider: LLMProvider;
 };
@@ -43,6 +44,7 @@ export function readSessionDragPayload(dataTransfer: DataTransfer): SessionDragP
 
     return {
       sessionId: parsed.sessionId,
+      sessionTitle: typeof parsed.sessionTitle === 'string' ? parsed.sessionTitle : '',
       sourceProjectId: typeof parsed.sourceProjectId === 'string' ? parsed.sourceProjectId : '',
       provider: (parsed.provider ?? 'claude') as LLMProvider,
     };

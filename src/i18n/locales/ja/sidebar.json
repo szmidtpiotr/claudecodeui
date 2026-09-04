@@ -121,5 +121,12 @@
     "deleteAllData": "すべてのデータを完全に削除",
     "allConversationsDeleted": "プロジェクトはサイドバーから除去されます。ファイル、メモリ、セッションデータは保持されます。",
     "cannotUndo": "後からプロジェクトを再追加できます。"
+  },
+  "moveConfirmation": {
+    "moveSession": "セッションを移動",
+    "confirmMove": "移動:",
+    "intoProject": "→",
+    "movingSession": "移動中…",
+    "staleHistoryNotice": "会話履歴には元のプロジェクトのファイルパスが残るため、再開時に存在しないパスを参照する場合があります。"
   }
 }

@@ -137,5 +137,12 @@
     "deleteAllData": "Elimina tutti i dati permanentemente",
     "allConversationsDeleted": "Il progetto verrà rimosso dalla barra laterale. I tuoi file, memorie e dati delle sessioni verranno preservati.",
     "cannotUndo": "Puoi riaggiungerlo in seguito."
+  },
+  "moveConfirmation": {
+    "moveSession": "Sposta sessione",
+    "confirmMove": "Sposta",
+    "intoProject": "in",
+    "movingSession": "Spostamento…",
+    "staleHistoryNotice": "La cronologia della conversazione fa ancora riferimento ai file del progetto originale, quindi riprendendola i percorsi potrebbero non esistere più."
   }
 }
