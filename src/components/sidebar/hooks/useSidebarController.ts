@@ -1013,10 +1013,13 @@ export function useSidebarController({
     try {
       const response = await api.moveSessionToProject(sessionId, targetProjectId);
       if (!response.ok) {
+        // A non-JSON body means the request never reached the move route (for
+        // example a stale server without it), so surface the status code
+        // instead of a generic failure that hides the real cause.
         const payload = await response.json().catch(() => null);
         const message = payload?.error?.message;
         console.error('[Sidebar] Failed to move session:', response.status, message);
-        alert(message || t('messages.moveSessionFailed'));
+        alert(message || `${t('messages.moveSessionFailed')} (HTTP ${response.status})`);
         return;
       }
 
