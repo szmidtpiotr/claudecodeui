@@ -103,6 +103,7 @@
     "deleteSessionFailed": "删除会话失败，请重试。",
     "deleteSessionError": "删除会话时出错，请重试。",
     "renameSessionFailed": "重命名会话失败，请重试。",
+    "moveSessionFailed": "移动会话失败，请重试。",
     "renameSessionError": "重命名会话时出错，请重试。",
     "deleteProjectFailed": "移除项目失败，请重试。",
     "deleteProjectError": "移除项目时出错，请重试。",

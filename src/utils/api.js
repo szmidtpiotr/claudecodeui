@@ -122,6 +122,13 @@ export const api = {
     authenticatedFetch(`/api/providers/sessions/${sessionId}/restore`, {
       method: 'POST',
     }),
+  // Re-parents a session: the backend relocates the transcript file and
+  // rewrites its recorded cwd, then updates the session row.
+  moveSessionToProject: (sessionId, projectId) =>
+    authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}/project`, {
+      method: 'PATCH',
+      body: JSON.stringify({ projectId }),
+    }),
   renameSession: (sessionId, summary) =>
     authenticatedFetch(`/api/providers/sessions/${sessionId}`, {
       method: 'PUT',

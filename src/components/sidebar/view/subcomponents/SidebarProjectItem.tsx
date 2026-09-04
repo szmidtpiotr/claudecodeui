@@ -1,3 +1,4 @@
+import { useState, type DragEvent } from 'react';
 import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -6,6 +7,7 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
 import type { MCPServerStatus, SessionWithProvider } from '../../types/types';
 import { getTaskIndicatorStatus } from '../../utils/utils';
+import { hasSessionDragPayload, readSessionDragPayload } from '../../utils/sessionDragAndDrop';
 
 import TaskIndicator from './TaskIndicator';
 import SidebarProjectSessions from './SidebarProjectSessions';
@@ -44,6 +46,7 @@ type SidebarProjectItemProps = {
   ) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
+  onMoveSessionToProject: (sessionId: string, targetProjectId: string) => void | Promise<void>;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
@@ -88,6 +91,7 @@ export default function SidebarProjectItem({
   onDeleteSession,
   onLoadMoreSessions,
   onNewSession,
+  onMoveSessionToProject,
   onEditingSessionNameChange,
   onStartEditingSession,
   onCancelEditingSession,
@@ -99,6 +103,7 @@ export default function SidebarProjectItem({
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
   // after the projectName → projectId migration.
+  const [isSessionDropTarget, setIsSessionDropTarget] = useState(false);
   const isSelected = selectedProject?.projectId === project.projectId;
   const isEditing = editingProject === project.projectId;
   const totalSessionCount = Number(project.sessionMeta?.total ?? sessions.length);
@@ -113,6 +118,45 @@ export default function SidebarProjectItem({
     onSaveProjectName(project.projectId);
   };
 
+  // Dropping a dragged session here re-parents it. `dragleave` also fires when
+  // the pointer crosses into a child element, so the highlight is only cleared
+  // when the pointer truly left this project's subtree.
+  const handleSessionDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasSessionDragPayload(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setIsSessionDropTarget(true);
+  };
+
+  const handleSessionDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
+    setIsSessionDropTarget(false);
+  };
+
+  const handleSessionDrop = (event: DragEvent<HTMLDivElement>) => {
+    const payload = hasSessionDragPayload(event.dataTransfer)
+      ? readSessionDragPayload(event.dataTransfer)
+      : null;
+
+    setIsSessionDropTarget(false);
+    if (!payload) {
+      return;
+    }
+
+    event.preventDefault();
+    if (payload.sourceProjectId === project.projectId) {
+      return;
+    }
+
+    void onMoveSessionToProject(payload.sessionId, project.projectId);
+  };
+
   const selectAndToggleProject = () => {
     if (selectedProject?.projectId !== project.projectId) {
       onProjectSelect(project);
@@ -122,7 +166,16 @@ export default function SidebarProjectItem({
   };
 
   return (
-    <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
+    <div
+      className={cn(
+        'md:space-y-1',
+        isDeleting && 'opacity-50 pointer-events-none',
+        isSessionDropTarget && 'rounded-lg ring-2 ring-primary/60 bg-primary/5',
+      )}
+      onDragOver={handleSessionDragOver}
+      onDragLeave={handleSessionDragLeave}
+      onDrop={handleSessionDrop}
+    >
       <div className="md:group group">
         <div className="md:hidden">
           <div

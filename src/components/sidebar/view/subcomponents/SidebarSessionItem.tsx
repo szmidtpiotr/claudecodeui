@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Check, Copy, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -9,6 +9,7 @@ import { api } from '../../../../utils/api';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import type { SessionWithProvider } from '../../types/types';
 import { createSessionViewModel, formatCompactAge } from '../../utils/utils';
+import { isSessionMovable, writeSessionDragPayload } from '../../utils/sessionDragAndDrop';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 type SidebarSessionItemProps = {
@@ -73,6 +74,7 @@ export default function SidebarSessionItem({
   const compactSessionAge = formatCompactAge(sessionView.sessionTime, currentTime);
   const editingContainerRef = useRef<HTMLDivElement>(null);
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>('idle');
   const [providerSessionId, setProviderSessionId] = useState<string | null>(null);
   const providerIdRequestRef = useRef(0);
@@ -144,6 +146,23 @@ export default function SidebarSessionItem({
 
   const requestDeleteSession = () => {
     onDeleteSession(project.projectId, session.id, sessionView.sessionName, session.__provider);
+  };
+
+  // Dragging a session onto another project re-parents it. Renaming keeps the
+  // caret in an input, so dragging stays off while the inline editor is open.
+  const isDraggable = isSessionMovable(session.__provider) && !isEditing && !isMobileViewport;
+
+  const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
+    if (!isDraggable || !event.dataTransfer) {
+      return;
+    }
+
+    writeSessionDragPayload(event.dataTransfer, {
+      sessionId: session.id,
+      sourceProjectId: project.projectId,
+      provider: session.__provider,
+    });
+    setIsDragging(true);
   };
 
   const loadProviderSessionId = async () => {
@@ -222,7 +241,12 @@ export default function SidebarSessionItem({
         : `Copy ${providerLabel} session ID`;
 
   return (
-    <div className="group relative">
+    <div
+      className={cn('group relative', isDragging && 'opacity-40')}
+      draggable={isDraggable}
+      onDragStart={handleDragStart}
+      onDragEnd={() => setIsDragging(false)}
+    >
       {(showAttentionIndicator || sessionView.isActive) && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
           <Tooltip

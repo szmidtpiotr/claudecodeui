@@ -169,8 +169,9 @@ export default tseslint.config(
           pattern: [
             "server/projects.js",
             "server/sessionManager.js",
+            "server/claude-sdk.js",
             "server/utils/runtime-paths.js",
-          ], // provider history loading still resolves session data through these legacy runtime files
+          ], // provider history loading still resolves session data through these legacy runtime files, and live Claude run state still lives in claude-sdk.js
           mode: "file",
         },
         {

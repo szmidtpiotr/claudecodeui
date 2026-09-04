@@ -44,6 +44,7 @@ export type SidebarProjectListProps = {
     provider: LLMProvider,
   ) => void;
   onNewSession: (project: Project) => void;
+  onMoveSessionToProject: (sessionId: string, targetProjectId: string) => void | Promise<void>;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
@@ -86,6 +87,7 @@ export default function SidebarProjectList({
   onSessionSelect,
   onDeleteSession,
   onNewSession,
+  onMoveSessionToProject,
   onEditingSessionNameChange,
   onStartEditingSession,
   onCancelEditingSession,
@@ -153,6 +155,7 @@ export default function SidebarProjectList({
               onDeleteSession={onDeleteSession}
               onLoadMoreSessions={onLoadMoreSessions}
               onNewSession={onNewSession}
+              onMoveSessionToProject={onMoveSessionToProject}
               onEditingSessionNameChange={onEditingSessionNameChange}
               onStartEditingSession={onStartEditingSession}
               onCancelEditingSession={onCancelEditingSession}

@@ -982,6 +982,34 @@ export function useSidebarController({
     [onRefresh, t],
   );
 
+  /**
+   * Moves one session into another project via drag & drop.
+   *
+   * The backend relocates the transcript file, so the sidebar has to reload
+   * both project lists and the conversation feed afterwards rather than
+   * patching the moved entry in place.
+   */
+  const moveSessionToProject = useCallback(
+    async (sessionId: string, targetProjectId: string) => {
+      try {
+        const response = await api.moveSessionToProject(sessionId, targetProjectId);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          const message = payload?.error?.message;
+          console.error('[Sidebar] Failed to move session:', response.status, message);
+          alert(message || t('messages.moveSessionFailed'));
+          return;
+        }
+
+        await refreshProjects();
+      } catch (error) {
+        console.error('[Sidebar] Error moving session:', error);
+        alert(t('messages.moveSessionFailed'));
+      }
+    },
+    [refreshProjects, t],
+  );
+
   const collapseSidebar = useCallback(() => {
     setSidebarVisible(false);
   }, [setSidebarVisible]);
@@ -1040,6 +1068,7 @@ export function useSidebarController({
     restoreArchivedSession,
     refreshProjects,
     updateSessionSummary,
+    moveSessionToProject,
     collapseSidebar,
     expandSidebar,
     setShowNewProject,

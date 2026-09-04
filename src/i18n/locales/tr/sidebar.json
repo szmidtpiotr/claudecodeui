@@ -103,6 +103,7 @@
     "deleteSessionFailed": "Oturum silinemedi. Lütfen tekrar dene.",
     "deleteSessionError": "Oturum silinirken hata oluştu. Lütfen tekrar dene.",
     "renameSessionFailed": "Oturum yeniden adlandırılamadı. Lütfen tekrar dene.",
+    "moveSessionFailed": "Oturum taşınamadı. Lütfen tekrar dene.",
     "renameSessionError": "Oturum yeniden adlandırılırken hata oluştu. Lütfen tekrar dene.",
     "deleteProjectFailed": "Proje kaldırılamadı. Lütfen tekrar dene.",
     "deleteProjectError": "Proje kaldırılırken hata oluştu. Lütfen tekrar dene.",

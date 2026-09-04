@@ -111,6 +111,7 @@ function Sidebar({
     restoreArchivedSession,
     refreshProjects,
     updateSessionSummary,
+    moveSessionToProject,
     collapseSidebar: handleCollapseSidebar,
     expandSidebar: handleExpandSidebar,
     setShowNewProject,
@@ -203,6 +204,7 @@ function Sidebar({
     onDeleteSession: showDeleteSessionConfirmation,
     onLoadMoreSessions: loadMoreSessionsForProject,
     onNewSession,
+    onMoveSessionToProject: moveSessionToProject,
     onEditingSessionNameChange: setEditingSessionName,
     onStartEditingSession: (sessionId, initialName) => {
       setEditingSession(sessionId);

@@ -103,6 +103,7 @@
     "deleteSessionFailed": "Sitzung konnte nicht gelöscht werden. Bitte erneut versuchen.",
     "deleteSessionError": "Fehler beim Löschen der Sitzung. Bitte erneut versuchen.",
     "renameSessionFailed": "Sitzung konnte nicht umbenannt werden. Bitte erneut versuchen.",
+    "moveSessionFailed": "Sitzung konnte nicht verschoben werden. Bitte erneut versuchen.",
     "renameSessionError": "Fehler beim Umbenennen der Sitzung. Bitte erneut versuchen.",
     "deleteProjectFailed": "Projekt konnte nicht entfernt werden. Bitte erneut versuchen.",
     "deleteProjectError": "Fehler beim Entfernen des Projekts. Bitte erneut versuchen.",

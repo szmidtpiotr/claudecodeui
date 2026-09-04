@@ -3,6 +3,10 @@ import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import {
+  moveSessionToProject,
+  type MoveSessionToProjectResult,
+} from '@/modules/providers/services/session-move.service.js';
 import type {
   FetchHistoryOptions,
   FetchHistoryResult,
@@ -305,6 +309,16 @@ export const sessionsService = {
       provider: session.provider as LLMProvider,
       projectPath: session.project_path ?? null,
     };
+  },
+
+  /**
+   * Moves one session into another project (transcript file + database row).
+   */
+  moveSessionToProject(
+    sessionId: string,
+    targetProjectId: string,
+  ): Promise<MoveSessionToProjectResult> {
+    return moveSessionToProject(sessionId, targetProjectId);
   },
 
   async renameSessionById(sessionId: string, summary: string): Promise<{ sessionId: string; summary: string }> {

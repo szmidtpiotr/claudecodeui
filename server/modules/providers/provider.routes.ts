@@ -220,6 +220,26 @@ const parseProvider = (value: unknown): LLMProvider => {
   });
 };
 
+const parseTargetProjectId = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') {
+    throw new AppError('Request body must be an object.', {
+      code: 'INVALID_REQUEST_BODY',
+      statusCode: 400,
+    });
+  }
+
+  const body = payload as Record<string, unknown>;
+  const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
+  if (!projectId) {
+    throw new AppError('projectId is required.', {
+      code: 'INVALID_PROJECT_ID',
+      statusCode: 400,
+    });
+  }
+
+  return projectId;
+};
+
 const parseSessionRenameSummary = (payload: unknown): string => {
   if (!payload || typeof payload !== 'object') {
     throw new AppError('Request body must be an object.', {
@@ -478,6 +498,18 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const summary = parseSessionRenameSummary(req.body);
     const result = await sessionsService.renameSessionById(sessionId, summary);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+// Re-parents a session. The transcript file moves with it, so this is a
+// PATCH on the session rather than a project-scoped write.
+router.patch(
+  '/sessions/:sessionId/project',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const projectId = parseTargetProjectId(req.body);
+    const result = await sessionsService.moveSessionToProject(sessionId, projectId);
     res.json(createApiSuccessResponse(result));
   }),
 );

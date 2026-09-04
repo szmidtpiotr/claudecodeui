@@ -82,6 +82,35 @@ export const sessionsDb = {
     return sessionId;
   },
 
+  /**
+   * Re-points one session row at another project.
+   *
+   * Both the owning project and the transcript location move together: the
+   * synchronizer rebuilds `project_path` from the `cwd` recorded inside the
+   * JSONL file, so a caller that changes this row without also rewriting and
+   * relocating the transcript would see the move reverted on the next scan.
+   *
+   * `updated_at` is deliberately left untouched so moving a session does not
+   * reorder the activity-sorted sidebar feed.
+   */
+  updateSessionProject(sessionId: string, projectPath: string, jsonlPath: string): boolean {
+    const db = getConnection();
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+
+    // The project row is a foreign key target, so it has to exist first.
+    projectsDb.createProjectPath(normalizedProjectPath);
+
+    return (
+      db
+        .prepare(
+          `UPDATE sessions
+           SET project_path = ?, jsonl_path = ?
+           WHERE session_id = ?`
+        )
+        .run(normalizedProjectPath, jsonlPath, sessionId).changes > 0
+    );
+  },
+
   updateSessionCustomName(sessionId: string, customName: string): void {
     const db = getConnection();
     db.prepare(

@@ -102,6 +102,7 @@
     "deleteSessionFailed": "セッションの削除に失敗しました。もう一度お試しください。",
     "deleteSessionError": "セッションの削除でエラーが発生しました。もう一度お試しください。",
     "renameSessionFailed": "セッション名の変更に失敗しました。もう一度お試しください。",
+    "moveSessionFailed": "セッションの移動に失敗しました。もう一度お試しください。",
     "renameSessionError": "セッション名の変更でエラーが発生しました。もう一度お試しください。",
     "deleteProjectFailed": "プロジェクトの除去に失敗しました。もう一度お試しください。",
     "deleteProjectError": "プロジェクトの除去でエラーが発生しました。もう一度お試しください。",

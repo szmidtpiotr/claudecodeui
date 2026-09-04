@@ -103,6 +103,7 @@
     "deleteSessionFailed": "Impossibile eliminare la sessione. Riprova.",
     "deleteSessionError": "Errore durante l'eliminazione della sessione. Riprova.",
     "renameSessionFailed": "Impossibile rinominare la sessione. Riprova.",
+    "moveSessionFailed": "Impossibile spostare la sessione. Riprova.",
     "renameSessionError": "Errore durante la rinomina della sessione. Riprova.",
     "deleteProjectFailed": "Impossibile rimuovere il progetto. Riprova.",
     "deleteProjectError": "Errore durante la rimozione del progetto. Riprova.",

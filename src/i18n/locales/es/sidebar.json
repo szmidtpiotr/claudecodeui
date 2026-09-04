@@ -103,6 +103,7 @@
     "deleteSessionFailed": "No se pudo eliminar la sesión. Inténtalo de nuevo.",
     "deleteSessionError": "Error al eliminar la sesión. Inténtalo de nuevo.",
     "renameSessionFailed": "No se pudo renombrar la sesión. Inténtalo de nuevo.",
+    "moveSessionFailed": "No se pudo mover la sesión. Inténtalo de nuevo.",
     "renameSessionError": "Error al renombrar la sesión. Inténtalo de nuevo.",
     "deleteProjectFailed": "No se pudo quitar el proyecto. Inténtalo de nuevo.",
     "deleteProjectError": "Error al quitar el proyecto. Inténtalo de nuevo.",
