@@ -214,6 +214,9 @@ router.put('/notification-preferences', async (req, res) => {
 
 const PINNED_SESSIONS_KEY = (userId) => `pinned_sessions:${userId}`;
 
+// Must match the key read by session-title.service.ts.
+const SESSION_AUTO_TITLE_KEY = 'session_auto_title_enabled';
+
 function readPinnedSessions(userId) {
   try {
     const raw = appConfigDb.get(PINNED_SESSIONS_KEY(userId));
@@ -247,6 +250,35 @@ router.put('/pinned-sessions', async (req, res) => {
   } catch (error) {
     console.error('Error saving pinned sessions:', error);
     res.status(500).json({ error: 'Failed to save pinned sessions' });
+  }
+});
+
+// ===============================
+// Session Titles
+// ===============================
+
+// Automatic titling spends tokens per session, so it needs a kill switch that
+// survives restarts. Absent config means enabled.
+router.get('/session-auto-title', async (req, res) => {
+  try {
+    res.json({ success: true, enabled: appConfigDb.get(SESSION_AUTO_TITLE_KEY) !== 'false' });
+  } catch (error) {
+    console.error('Error reading session auto-title setting:', error);
+    res.status(500).json({ error: 'Failed to read session auto-title setting' });
+  }
+});
+
+router.put('/session-auto-title', async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+    appConfigDb.set(SESSION_AUTO_TITLE_KEY, enabled ? 'true' : 'false');
+    res.json({ success: true, enabled });
+  } catch (error) {
+    console.error('Error saving session auto-title setting:', error);
+    res.status(500).json({ error: 'Failed to save session auto-title setting' });
   }
 });
 

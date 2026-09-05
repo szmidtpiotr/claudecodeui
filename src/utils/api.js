@@ -134,6 +134,15 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ summary }),
     }),
+  // Regenerates the session title from its own transcript. `force` overwrites a
+  // title the user set or a previous generation produced.
+  generateSessionTitle: (sessionId, force = false) => {
+    const qs = force ? '?force=true' : '';
+    return authenticatedFetch(
+      `/api/providers/sessions/${encodeURIComponent(sessionId)}/title${qs}`,
+      { method: 'POST' },
+    );
+  },
   // `hardDelete` => server `?force=true` (remove DB row + Claude *.jsonl + sessions rows for path).
   deleteProject: (projectId, hardDelete = false) => {
     const params = new URLSearchParams();

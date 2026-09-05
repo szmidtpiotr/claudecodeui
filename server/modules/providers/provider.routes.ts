@@ -5,6 +5,7 @@ import { providerMcpService } from '@/modules/providers/services/mcp.service.js'
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
+import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
   LLMProvider,
@@ -498,6 +499,26 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const summary = parseSessionRenameSummary(req.body);
     const result = await sessionsService.renameSessionById(sessionId, summary);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+// Generates a descriptive title from the session's own transcript. Without
+// `force` this is a no-op for titles the user set or a previous run generated.
+router.post(
+  '/sessions/:sessionId/title',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const force = parseOptionalBooleanQuery(req.query.force, 'force') ?? false;
+    const result = await sessionTitleService.generateTitleForSession(sessionId, { force });
+
+    if (result.reason === 'SESSION_NOT_FOUND') {
+      throw new AppError(`Session "${sessionId}" was not found.`, {
+        code: 'SESSION_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
     res.json(createApiSuccessResponse(result));
   }),
 );

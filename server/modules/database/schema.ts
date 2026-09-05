@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'claude',
     custom_name TEXT,
+    -- Where custom_name came from: 'user' (explicit rename), 'ai' (generated
+    -- title), or 'derived' (first user message / provider metadata). Only
+    -- 'derived' rows are eligible for automatic retitling.
+    name_source TEXT DEFAULT NULL,
     project_path TEXT,
     jsonl_path TEXT,
     isArchived BOOLEAN DEFAULT 0,

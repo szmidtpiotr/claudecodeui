@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { sessionsDb, type SessionNameSource } from '@/modules/database/index.js';
 import {
   buildLookupMap,
   extractFirstValidJsonlData,
@@ -16,7 +16,15 @@ type ParsedSession = {
   sessionId: string;
   projectPath: string;
   sessionName?: string;
+  /**
+   * Left undefined when the row already carries a name whose provenance this
+   * scan did not change, so the stored `name_source` survives the upsert.
+   */
+  nameSource?: SessionNameSource;
 };
+
+/** How the title event at the end of a transcript was produced. */
+type TranscriptTitleKind = 'custom' | 'ai' | 'last-prompt';
 
 /**
  * Session indexer for Claude transcript artifacts.
@@ -51,7 +59,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.sessionName,
         timestamps.createdAt,
         timestamps.updatedAt,
-        filePath
+        filePath,
+        parsed.nameSource
       );
       processed += 1;
     }
@@ -81,7 +90,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      filePath,
+      parsed.nameSource
     );
   }
 
@@ -154,24 +164,43 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     const titleResult = await this.extractSessionAiTitleFromEnd(filePath, parsed.sessionId);
 
     if (existingSessionName && existingSessionName !== 'Untitled Claude Session') {
-      const cliRename = titleResult?.isCustomTitle && titleResult.title !== existingSessionName
+      const cliRename = titleResult?.kind === 'custom' && titleResult.title !== existingSessionName
         ? titleResult.title
         : null;
 
       return {
         ...parsed,
         sessionName: normalizeSessionName(cliRename ?? existingSessionName, 'Untitled Claude Session'),
+        // A CLI `/rename` is an explicit user title; otherwise the stored
+        // provenance is untouched by this scan.
+        nameSource: cliRename ? 'user' : undefined,
       };
     }
 
-    let sessionName = nameMap.get(parsed.sessionId) ?? titleResult?.title;
+    const historyDisplayName = nameMap.get(parsed.sessionId);
+    let sessionName = historyDisplayName ?? titleResult?.title;
+    let nameSource: SessionNameSource = 'derived';
+
+    if (!historyDisplayName && titleResult?.title) {
+      // Claude's own `ai-title` is already a descriptive title, so it is not a
+      // retitling candidate. A `last-prompt` echo is, exactly like the
+      // first-message fallback below.
+      nameSource = titleResult.kind === 'custom'
+        ? 'user'
+        : titleResult.kind === 'ai'
+          ? 'ai'
+          : 'derived';
+    }
+
     if (!sessionName) {
       sessionName = await this.extractFirstUserMessageFromStart(filePath);
+      nameSource = 'derived';
     }
 
     return {
       ...parsed,
       sessionName: normalizeSessionName(sessionName, 'Untitled Claude Session'),
+      nameSource,
     };
   }
 
@@ -209,7 +238,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
   private async extractSessionAiTitleFromEnd(
     filePath: string,
     sessionId: string
-  ): Promise<{ title: string; isCustomTitle: boolean } | undefined> {
+  ): Promise<{ title: string; kind: TranscriptTitleKind } | undefined> {
     try {
       const content = await readFile(filePath, 'utf8');
       const lines = content.split(/\r?\n/);
@@ -235,13 +264,13 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         const claudeRenamedTitle = typeof data.customTitle === 'string' ? data.customTitle : undefined;
 
         if (eventType === 'custom-title' && eventSessionId === sessionId && claudeRenamedTitle?.trim()) {
-          return { title: claudeRenamedTitle, isCustomTitle: true };
+          return { title: claudeRenamedTitle, kind: 'custom' };
         }
-        if (
-          (eventType === 'ai-title' && eventSessionId === sessionId && aiTitle?.trim()) ||
-          (eventType === 'last-prompt' && eventSessionId === sessionId && lastPrompt?.trim())
-        ) {
-          return { title: (aiTitle || lastPrompt) as string, isCustomTitle: false };
+        if (eventType === 'ai-title' && eventSessionId === sessionId && aiTitle?.trim()) {
+          return { title: aiTitle, kind: 'ai' };
+        }
+        if (eventType === 'last-prompt' && eventSessionId === sessionId && lastPrompt?.trim()) {
+          return { title: lastPrompt, kind: 'last-prompt' };
         }
       }
     } catch {

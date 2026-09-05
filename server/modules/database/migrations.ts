@@ -412,6 +412,25 @@ const addProviderSessionIdMapping = (db: Database): void => {
   `);
 };
 
+/**
+ * Records the provenance of every session title.
+ *
+ * Existing rows were all named from provider metadata or the first user
+ * message, so they backfill to 'derived' and stay eligible for an AI-generated
+ * title. Anything renamed after this migration records its own source.
+ */
+const addSessionNameSourceColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'name_source', 'TEXT');
+  db.exec(`
+    UPDATE sessions
+    SET name_source = 'derived'
+    WHERE name_source IS NULL
+  `);
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -461,6 +480,7 @@ export const runMigrations = (db: Database) => {
     removeAgentSidechainSessions(db);
     ensureProjectsForSessionPaths(db);
     addProviderSessionIdMapping(db);
+    addSessionNameSourceColumn(db);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');

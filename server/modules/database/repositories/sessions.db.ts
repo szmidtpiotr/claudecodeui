@@ -2,6 +2,14 @@ import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { normalizeProjectPath } from '@/shared/utils.js';
 
+/**
+ * Provenance of a session's `custom_name`.
+ *
+ * Only `derived` titles (first user message, provider metadata) may be
+ * replaced automatically; `user` and `ai` titles are kept as-is.
+ */
+export type SessionNameSource = 'user' | 'ai' | 'derived';
+
 type SessionRow = {
   session_id: string;
   provider: string;
@@ -9,6 +17,7 @@ type SessionRow = {
   project_path: string | null;
   jsonl_path: string | null;
   custom_name: string | null;
+  name_source: SessionNameSource | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -16,7 +25,15 @@ type SessionRow = {
 
 type SessionMetadataLookupRow = Pick<
   SessionRow,
-  'session_id' | 'provider' | 'project_path' | 'jsonl_path' | 'custom_name' | 'isArchived' | 'created_at' | 'updated_at'
+  | 'session_id'
+  | 'provider'
+  | 'project_path'
+  | 'jsonl_path'
+  | 'custom_name'
+  | 'name_source'
+  | 'isArchived'
+  | 'created_at'
+  | 'updated_at'
 > & { provider_session_id?: string | null };
 
 type RecentSessionsPage = {
@@ -48,7 +65,8 @@ export const sessionsDb = {
     customName?: string,
     createdAt?: string,
     updatedAt?: string,
-    jsonlPath?: string | null
+    jsonlPath?: string | null,
+    nameSource?: SessionNameSource
   ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
@@ -60,19 +78,21 @@ export const sessionsDb = {
     projectsDb.createProjectPath(normalizedProjectPath);
 
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO sessions (session_id, provider, custom_name, name_source, project_path, jsonl_path, isArchived, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
        ON CONFLICT(session_id) DO UPDATE SET
          provider = excluded.provider,
          updated_at = excluded.updated_at,
          project_path = excluded.project_path,
          jsonl_path = excluded.jsonl_path,
          isArchived = 0,
-         custom_name = COALESCE(excluded.custom_name, sessions.custom_name)`
+         custom_name = COALESCE(excluded.custom_name, sessions.custom_name),
+         name_source = COALESCE(excluded.name_source, sessions.name_source)`
     ).run(
       sessionId,
       provider,
       customName ?? null,
+      nameSource ?? null,
       normalizedProjectPath,
       jsonlPath ?? null,
       createdAtValue,
@@ -111,20 +131,46 @@ export const sessionsDb = {
     );
   },
 
-  updateSessionCustomName(sessionId: string, customName: string): void {
+  updateSessionCustomName(
+    sessionId: string,
+    customName: string,
+    nameSource: SessionNameSource = 'user'
+  ): void {
     const db = getConnection();
     db.prepare(
       `UPDATE sessions
-       SET custom_name = ?
+       SET custom_name = ?, name_source = ?
        WHERE session_id = ?`
-    ).run(customName, sessionId);
+    ).run(customName, nameSource, sessionId);
+  },
+
+  /**
+   * Returns the oldest-activity-first batch of sessions whose title is still
+   * machine-derived, so a title generator can work through the backlog without
+   * ever touching a name the user or a previous generation run set.
+   *
+   * Only providers that keep a readable transcript on disk are considered.
+   */
+  getSessionsNeedingGeneratedTitle(limit: number): SessionRow[] {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+         FROM sessions
+         WHERE isArchived = 0
+           AND (name_source IS NULL OR name_source = 'derived')
+           AND jsonl_path IS NOT NULL
+         ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
+         LIMIT ?`
+      )
+      .all(limit) as SessionRow[];
   },
 
   getSessionById(sessionId: string): SessionMetadataLookupRow | null {
     const db = getConnection();
     const row = db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at, provider_session_id
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at, provider_session_id
          FROM sessions
          WHERE session_id = ?
          ORDER BY updated_at DESC
@@ -139,7 +185,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 0`
       )
@@ -194,7 +240,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 1
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC`
@@ -207,7 +253,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0`
@@ -224,7 +270,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?`
       )
@@ -236,7 +282,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0

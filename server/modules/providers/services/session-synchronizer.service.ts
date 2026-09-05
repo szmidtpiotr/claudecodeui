@@ -1,5 +1,6 @@
 import { scanStateDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import type { LLMProvider } from '@/shared/types.js';
 
 type SessionSynchronizeResult = {
@@ -52,6 +53,12 @@ export const sessionSynchronizerService = {
       );
     }
 
+    // Titling is a best-effort follow-up: a failed or disabled generator must
+    // never make a successful session scan look like a failed one.
+    void sessionTitleService.generateMissingTitles().catch((error: unknown) => {
+      console.warn('[Sessions] Session title generation failed:', error);
+    });
+
     return {
       processedByProvider,
       failures,
@@ -67,6 +74,15 @@ export const sessionSynchronizerService = {
   ): Promise<{ provider: LLMProvider; indexed: boolean; sessionId: string | null }> {
     const resolvedProvider = providerRegistry.resolveProvider(provider);
     const sessionId = await resolvedProvider.sessionSynchronizer.synchronizeFile(filePath);
+
+    // Retitle the session that just changed rather than waiting for the next
+    // full scan, so a live conversation picks up a real title quickly.
+    if (sessionId && sessionTitleService.isAutoTitleEnabled()) {
+      void sessionTitleService.generateTitleForSession(sessionId).catch((error: unknown) => {
+        console.warn(`[Sessions] Session title generation failed for ${sessionId}:`, error);
+      });
+    }
+
     return {
       provider,
       indexed: Boolean(sessionId),

@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 
 import Anthropic from '@anthropic-ai/sdk';
 
 import { sessionsDb } from '@/modules/database/index.js';
+import {
+  buildAnthropicClientOptions,
+  readCredentialToken,
+} from '@/modules/providers/list/claude/claude-credentials.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -19,42 +21,6 @@ import {
 
 const MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 let modelsCache: { models: ProviderModelsDefinition; fetchedAt: number } | null = null;
-
-async function readCredentialToken(): Promise<{ type: 'api_key' | 'oauth'; token: string } | null> {
-  if (process.env.ANTHROPIC_API_KEY?.trim()) {
-    return { type: 'api_key', token: process.env.ANTHROPIC_API_KEY.trim() };
-  }
-
-  try {
-    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-    const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as Record<string, unknown>;
-    const envBlock = settings?.env as Record<string, unknown> | undefined;
-    const apiKey = envBlock?.ANTHROPIC_API_KEY;
-    if (typeof apiKey === 'string' && apiKey.trim()) {
-      return { type: 'api_key', token: apiKey.trim() };
-    }
-    const authToken = envBlock?.ANTHROPIC_AUTH_TOKEN;
-    if (typeof authToken === 'string' && authToken.trim()) {
-      return { type: 'oauth', token: authToken.trim() };
-    }
-  } catch {
-    // fall through
-  }
-
-  try {
-    const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
-    const creds = JSON.parse(await readFile(credPath, 'utf8')) as Record<string, unknown>;
-    const oauth = creds?.claudeAiOauth as Record<string, unknown> | undefined;
-    const accessToken = oauth?.accessToken;
-    if (typeof accessToken === 'string' && accessToken.trim()) {
-      return { type: 'oauth', token: accessToken.trim() };
-    }
-  } catch {
-    // fall through
-  }
-
-  return null;
-}
 
 type PricingEntry = { input: string; output: string; usageFactor?: string };
 
@@ -120,17 +86,7 @@ async function fetchDynamicModels(): Promise<ProviderModelsDefinition | null> {
   if (!credential) return null;
 
   try {
-    const clientOpts: ConstructorParameters<typeof Anthropic>[0] = {
-      defaultHeaders: { 'anthropic-beta': 'claude-code-20250219' },
-    };
-    if (credential.type === 'api_key') {
-      clientOpts.apiKey = credential.token;
-    } else {
-      clientOpts.authToken = credential.token;
-      clientOpts.apiKey = '';
-    }
-
-    const client = new Anthropic(clientOpts);
+    const client = new Anthropic(buildAnthropicClientOptions(credential));
     const result = await client.models.list();
     const models = (result.data ?? []).filter(
       (m) => typeof m.id === 'string' && typeof m.display_name === 'string',

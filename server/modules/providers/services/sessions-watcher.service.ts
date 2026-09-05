@@ -5,6 +5,11 @@ import { promises as fsPromises } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
+import {
+  SESSION_METADATA_CHANGED,
+  sessionEvents,
+  type SessionMetadataChangedEvent,
+} from '@/modules/providers/services/session-events.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { getProjectsWithSessions } from '@/modules/projects/index.js';
@@ -225,6 +230,13 @@ async function onUpdate(
 export async function initializeSessionsWatcher(): Promise<void> {
   console.log('Setting up session watchers');
 
+  // A generated title changes the session row without touching the transcript,
+  // so it needs the same debounced broadcast a file change gets.
+  sessionEvents.removeAllListeners(SESSION_METADATA_CHANGED);
+  sessionEvents.on(SESSION_METADATA_CHANGED, (event: SessionMetadataChangedEvent) => {
+    queuePendingWatcherUpdate('change', event.provider, event.sessionId);
+  });
+
   const initialSync = await sessionSynchronizerService.synchronizeSessions();
   console.log('Initial session synchronization complete', {
     processedByProvider: initialSync.processedByProvider,
@@ -274,6 +286,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   clearPendingWatcherFlushTimer();
+  sessionEvents.removeAllListeners(SESSION_METADATA_CHANGED);
 
   await Promise.all(
     watchers.map(async (watcher) => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Check, Copy, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { Check, Copy, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu, Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -47,6 +47,8 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
 
 type CopyState = 'loading' | 'idle' | 'copying' | 'copied' | 'error';
 
+type TitleState = 'idle' | 'generating' | 'error';
+
 
 export default function SidebarSessionItem({
   project,
@@ -76,6 +78,7 @@ export default function SidebarSessionItem({
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>('idle');
+  const [titleState, setTitleState] = useState<TitleState>('idle');
   const [providerSessionId, setProviderSessionId] = useState<string | null>(null);
   const providerIdRequestRef = useRef(0);
   const providerLabel = PROVIDER_LABELS[session.__provider] ?? session.__provider;
@@ -229,6 +232,30 @@ export default function SidebarSessionItem({
     }
   };
 
+  // Regenerating always passes `force`: the user asking for a new title is an
+  // explicit override of whatever title is currently stored.
+  const regenerateTitle = async () => {
+    if (titleState === 'generating') {
+      return;
+    }
+
+    setTitleState('generating');
+    try {
+      const response = await api.generateSessionTitle(session.id, true);
+      const payload = await response.json();
+      setTitleState(response.ok && payload?.data?.title ? 'idle' : 'error');
+    } catch {
+      setTitleState('error');
+    }
+  };
+
+  const isTitleGenerating = titleState === 'generating';
+  const titleLabel = isTitleGenerating
+    ? 'Generating title…'
+    : titleState === 'error'
+      ? "Couldn't generate a title"
+      : 'Generate title';
+
   const isCopyPending = copyState === 'loading' || copyState === 'copying';
   const CopyStateIcon = copyState === 'copied' ? Check : Copy;
   const copyLabel = copyState === 'loading'
@@ -329,7 +356,7 @@ export default function SidebarSessionItem({
               )}
             </button>
             <button
-              className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-gray-50 dark:bg-gray-900/20 opacity-70 transition-transform active:scale-95"
+              className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-gray-50 opacity-70 transition-transform active:scale-95 dark:bg-gray-900/20"
               onClick={(event) => {
                 event.stopPropagation();
                 setMobileOptionsOpen(true);
@@ -393,6 +420,25 @@ export default function SidebarSessionItem({
               >
                 <Edit2 className="h-5 w-5 flex-shrink-0" />
                 <span className="text-sm font-medium">Rename session</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isTitleGenerating}
+                onClick={() => {
+                  void regenerateTitle();
+                }}
+                className={cn(
+                  'flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors active:bg-muted',
+                  isTitleGenerating && 'opacity-60',
+                )}
+              >
+                {isTitleGenerating ? (
+                  <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin" />
+                ) : (
+                  <Sparkles className="h-5 w-5 flex-shrink-0" />
+                )}
+                <span className="text-sm font-medium">{titleLabel}</span>
               </button>
 
               <button
@@ -558,6 +604,17 @@ export default function SidebarSessionItem({
                   label: 'Rename session',
                   icon: Edit2,
                   onSelect: () => onStartEditingSession(session.id, sessionView.sessionName),
+                },
+                {
+                  key: 'generate-title',
+                  label: titleLabel,
+                  description: titleState === 'error' ? 'Click to try again.' : undefined,
+                  icon: Sparkles,
+                  loading: isTitleGenerating,
+                  closeOnSelect: false,
+                  onSelect: () => {
+                    void regenerateTitle();
+                  },
                 },
                 {
                   key: 'pin',
