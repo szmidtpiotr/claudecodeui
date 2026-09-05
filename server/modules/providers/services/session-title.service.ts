@@ -26,6 +26,16 @@ const EXCERPT_TOTAL_CHARS = 2400;
 /** Sessions retitled per automatic backlog pass, so a first run cannot fan out. */
 const AUTO_TITLE_BATCH_SIZE = 5;
 
+/**
+ * An install that predates title generation has one derived title per historical
+ * session, which a single pass would never clear. The backlog is drained on a
+ * timer instead: a small batch per tick keeps the spend visible and gradual
+ * rather than firing hundreds of requests at startup.
+ */
+const BACKLOG_DRAIN_INTERVAL_MS = 60_000;
+let backlogDrainTimer: ReturnType<typeof setInterval> | null = null;
+let backlogDrainInFlight = false;
+
 const AUTO_TITLE_CONFIG_KEY = 'session_auto_title_enabled';
 
 const SYSTEM_PROMPT = [
@@ -247,7 +257,12 @@ async function requestTitleFromModel(excerpt: string): Promise<string | null> {
       .join(' ');
 
     return normalizeGeneratedTitle(text);
-  } catch {
+  } catch (error) {
+    // Titling is best-effort, but a silent catch makes an expired token or a
+    // rejected model look identical to "the transcript had nothing to say".
+    const status = (error as { status?: number })?.status;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[Sessions] Title generation request failed', { status, message });
     return null;
   }
 }
@@ -346,5 +361,44 @@ export const sessionTitleService = {
     }
 
     return outcomes;
+  },
+
+  /**
+   * Starts the periodic backlog drain.
+   *
+   * The timer is unreferenced so it never keeps the process alive, and a tick
+   * is skipped entirely while the previous one is still running.
+   */
+  startBacklogDrain(): void {
+    if (backlogDrainTimer) {
+      return;
+    }
+
+    backlogDrainTimer = setInterval(() => {
+      if (backlogDrainInFlight || !isAutoTitleEnabled()) {
+        return;
+      }
+
+      backlogDrainInFlight = true;
+      void sessionTitleService
+        .generateMissingTitles()
+        .catch((error: unknown) => {
+          console.warn('[Sessions] Session title backlog drain failed:', error);
+        })
+        .finally(() => {
+          backlogDrainInFlight = false;
+        });
+    }, BACKLOG_DRAIN_INTERVAL_MS);
+
+    backlogDrainTimer.unref?.();
+  },
+
+  stopBacklogDrain(): void {
+    if (!backlogDrainTimer) {
+      return;
+    }
+
+    clearInterval(backlogDrainTimer);
+    backlogDrainTimer = null;
   },
 };

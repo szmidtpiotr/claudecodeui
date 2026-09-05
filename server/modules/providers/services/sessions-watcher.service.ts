@@ -5,6 +5,7 @@ import { promises as fsPromises } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
+import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import {
   SESSION_METADATA_CHANGED,
   sessionEvents,
@@ -243,6 +244,8 @@ export async function initializeSessionsWatcher(): Promise<void> {
     failures: initialSync.failures,
   });
 
+  sessionTitleService.startBacklogDrain();
+
   for (const { provider, rootPath } of PROVIDER_WATCH_PATHS) {
     try {
       await fsPromises.mkdir(rootPath, { recursive: true });
@@ -286,6 +289,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
  */
 export async function closeSessionsWatcher(): Promise<void> {
   clearPendingWatcherFlushTimer();
+  sessionTitleService.stopBacklogDrain();
   sessionEvents.removeAllListeners(SESSION_METADATA_CHANGED);
 
   await Promise.all(
