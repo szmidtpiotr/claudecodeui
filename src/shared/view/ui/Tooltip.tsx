@@ -10,7 +10,18 @@ type TooltipProps = {
   content?: ReactNode;
   position?: TooltipPosition;
   className?: string;
+  /**
+   * Classes for the wrapper element. Needed when the tooltip target is a flex
+   * child that has to keep shrinking (e.g. `min-w-0 flex-1`), since the default
+   * `inline-block` wrapper would otherwise stop the child from truncating.
+   */
+  containerClassName?: string;
   delay?: number;
+  /**
+   * Fires when a touch long-press opens the tooltip, so the surrounding row can
+   * suppress the click that follows the release.
+   */
+  onLongPress?: () => void;
 };
 
 function getArrowClasses(position: TooltipPosition): string {
@@ -33,7 +44,9 @@ function Tooltip({
   content,
   position = 'top',
   className = '',
+  containerClassName = '',
   delay = 350,
+  onLongPress,
 }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
   // Store the timer id without forcing re-renders while hovering.
@@ -107,6 +120,7 @@ function Tooltip({
     timeoutRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
       setIsVisible(true);
+      onLongPress?.();
     }, delay);
   };
 
@@ -169,7 +183,7 @@ function Tooltip({
   return (
     <div
       ref={containerRef}
-      className="relative inline-block"
+      className={cn('relative inline-block', containerClassName)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onTouchStart={handleTouchStart}

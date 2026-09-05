@@ -8,6 +8,7 @@ import type { Project, ProjectSession, LLMProvider } from '../../../../types/app
 import { api } from '../../../../utils/api';
 import { copyTextToClipboard } from '../../../../utils/clipboard';
 import type { SessionWithProvider } from '../../types/types';
+import { useIsTextTruncated } from '../../../../hooks/useIsTextTruncated';
 import { createSessionViewModel, formatCompactAge } from '../../utils/utils';
 import { isSessionMovable, writeSessionDragPayload } from '../../utils/sessionDragAndDrop';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -83,21 +84,17 @@ export default function SidebarSessionItem({
   const providerIdRequestRef = useRef(0);
   const providerLabel = PROVIDER_LABELS[session.__provider] ?? session.__provider;
 
-  // Mobile rename: long-press (>1s) opens a modal. Touch devices have no hover,
-  // so the desktop group-hover pencil is unreachable — the long-press + modal is
-  // the only rename affordance on phones.
-  const LONG_PRESS_MS = 1000;
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Touch devices have no hover, so a long-press on the row's title reveals the
+  // full session name. Renaming stays in the "..." sheet, which already offers
+  // it — binding both to the same gesture would make either one unreliable.
   const longPressFiredRef = useRef(false);
 
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
-  useEffect(() => clearLongPressTimer, []);
+  // Both layouts stay mounted and are toggled with CSS, so each needs its own
+  // measurement — the hidden one always reports zero width.
+  const { elementRef: mobileTitleRef, isTruncated: isMobileTitleTruncated } =
+    useIsTextTruncated<HTMLDivElement>(sessionView.sessionName);
+  const { elementRef: desktopTitleRef, isTruncated: isDesktopTitleTruncated } =
+    useIsTextTruncated<HTMLDivElement>(sessionView.sessionName);
 
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
@@ -134,13 +131,14 @@ export default function SidebarSessionItem({
     onSessionSelect(session, project.projectId);
   };
 
-  const startLongPress = () => {
+  // The title tooltip owns the long-press timing; this only records that one
+  // happened so the release does not also open the session.
+  const suppressNextMobileSelect = () => {
+    longPressFiredRef.current = true;
+  };
+
+  const clearLongPressSuppression = () => {
     longPressFiredRef.current = false;
-    clearLongPressTimer();
-    longPressTimerRef.current = setTimeout(() => {
-      longPressFiredRef.current = true;
-      onStartEditingSession(session.id, sessionView.sessionName);
-    }, LONG_PRESS_MS);
   };
 
   const saveEditedSession = () => {
@@ -307,10 +305,7 @@ export default function SidebarSessionItem({
               : 'border-border/30',
           )}
           onClick={selectMobileSession}
-          onTouchStart={startLongPress}
-          onTouchEnd={clearLongPressTimer}
-          onTouchMove={clearLongPressTimer}
-          onTouchCancel={clearLongPressTimer}
+          onTouchStart={clearLongPressSuppression}
           onContextMenu={(event) => event.preventDefault()}
         >
           <div className="flex items-center gap-2">
@@ -325,7 +320,20 @@ export default function SidebarSessionItem({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className={cn("truncate text-xs font-medium", isPinned ? "text-amber-400" : "text-foreground")}>{sessionView.sessionName}</div>
+                <Tooltip
+                  content={isMobileTitleTruncated ? sessionView.sessionName : undefined}
+                  position="bottom"
+                  containerClassName="min-w-0 flex-1"
+                  className="max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal break-words"
+                  onLongPress={suppressNextMobileSelect}
+                >
+                  <div
+                    ref={mobileTitleRef}
+                    className={cn('truncate text-xs font-medium', isPinned ? 'text-amber-400' : 'text-foreground')}
+                  >
+                    {sessionView.sessionName}
+                  </div>
+                </Tooltip>
                 {compactSessionAge && (
                   <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground">{compactSessionAge}</span>
                 )}
@@ -513,7 +521,19 @@ export default function SidebarSessionItem({
             <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <div className={cn("truncate text-xs font-medium", isPinned ? "text-amber-400" : "text-foreground")}>{sessionView.sessionName}</div>
+                <Tooltip
+                  content={isDesktopTitleTruncated ? sessionView.sessionName : undefined}
+                  position="bottom"
+                  containerClassName="min-w-0 flex-1"
+                  className="max-w-[min(24rem,calc(100vw-2rem))] whitespace-normal break-words"
+                >
+                  <div
+                    ref={desktopTitleRef}
+                    className={cn('truncate text-xs font-medium', isPinned ? 'text-amber-400' : 'text-foreground')}
+                  >
+                    {sessionView.sessionName}
+                  </div>
+                </Tooltip>
                 {compactSessionAge && (
                   <span
                     className={cn(
