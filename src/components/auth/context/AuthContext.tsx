@@ -97,8 +97,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // nothing about the current session — bailing out keeps us from clearing it.
       const sessionReplaced = () => readRawAuthToken() !== requestToken;
 
+      // Only an explicit auth rejection proves the session is dead. A 502 from
+      // the reverse proxy, a 5xx while the dev server restarts, or an HTML
+      // error page that fails to parse says nothing about the token — and
+      // wiping it there is what logged mobile PWA users out every time the app
+      // was resumed from the background and its first request lost the race
+      // with the network coming back.
+      const isAuthRejection = userResponse.status === 401 || userResponse.status === 403;
+
       if (!userResponse.ok) {
-        if (!sessionReplaced()) {
+        if (isAuthRejection && !sessionReplaced()) {
           clearSession();
         }
         return;
@@ -106,9 +114,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const userPayload = await parseJsonSafely<AuthUserPayload>(userResponse);
       if (!userPayload?.user) {
-        if (!sessionReplaced()) {
-          clearSession();
-        }
         return;
       }
 

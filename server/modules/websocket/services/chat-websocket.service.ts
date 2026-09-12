@@ -131,6 +131,16 @@ export function handleChatConnection(
         throw new Error('Message type is required');
       }
 
+      // Liveness probe. A phone that resumed a backgrounded PWA can hold a
+      // socket that still reports OPEN over a TCP connection the network has
+      // already dropped: `send()` succeeds locally and the prompt is never
+      // delivered. The client pings on resume and reconnects if no pong
+      // arrives, so this has to answer before any provider dispatch.
+      if (messageType === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        return;
+      }
+
       if (messageType === 'claude-command') {
         await dependencies.queryClaudeSDK(data.command ?? '', data.options, writer);
         return;
