@@ -89,7 +89,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const requestToken = readRawAuthToken();
+      // Trust storage over the closured state. `authenticatedFetch` re-reads the
+      // stored token, so state can hold a token storage no longer has; firing
+      // the request anyway sends no Authorization header and the resulting 401
+      // reads as a server rejection, wiping a session for no reason.
+      const requestToken = readValidAuthToken();
+      if (!requestToken) {
+        clearSession();
+        return;
+      }
+
       const userResponse = await api.auth.user();
 
       // A login can complete while this check is still in flight. In that case the

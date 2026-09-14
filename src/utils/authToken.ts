@@ -86,12 +86,20 @@ export const clearAuthToken = (): void => {
 };
 
 /**
- * Returns the stored token only while it is still valid, dropping it otherwise.
+ * Returns the stored token, dropping only a value that is structurally unusable.
  *
- * This is the single gate every outgoing request goes through. An expired token
- * left in localStorage is answered with 403 by the server, and a 403 on
- * /api/auth/user is treated as "this session is dead" — which used to wipe a
- * session that had just been established by a successful login.
+ * Expiry is deliberately NOT enforced here. Two things went wrong when it was:
+ *
+ * 1. The device clock is not trustworthy. A phone running ahead reads a token
+ *    the server still accepts as expired and throws away a working session.
+ * 2. This function is called from inside `authenticatedFetch`, so clearing here
+ *    desynchronised storage from the React auth state: the state still held a
+ *    token, passed its `if (!token)` guard, and the request then went out with
+ *    no Authorization header at all. The server answered 401 — indistinguishable
+ *    from a real rejection — and the session was wiped. That is the 401 seen in
+ *    the proxy log with no matching token error on the server.
+ *
+ * The server is the authority on expiry; a 401/403 is what ends a session.
  */
 export const readValidAuthToken = (): string | null => {
   const stored = readRawAuthToken();
@@ -99,7 +107,8 @@ export const readValidAuthToken = (): string | null => {
     return null;
   }
 
-  if (isTokenExpired(stored)) {
+  // Not a JWT at all (truncated write, foreign value): nothing can use it.
+  if (!isValidRefreshedToken(stored)) {
     clearAuthToken();
     return null;
   }

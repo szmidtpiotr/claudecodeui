@@ -46,6 +46,15 @@ const authenticateToken = async (req, res, next) => {
   }
 
   if (!token) {
+    // Logged loudly on purpose: a client that believes it is signed in but
+    // sends no Authorization header is a client-side session bug, and it is
+    // otherwise invisible — this branch produces the same bare 401 as a
+    // genuine sign-out, with nothing in the server log to tell them apart.
+    console.warn('[auth] 401 no token provided', {
+      path: req.originalUrl,
+      ua: req.headers['user-agent'],
+      referer: req.headers['referer'] || null,
+    });
     return res.status(401).json({ error: 'Access denied. No token provided.' });
   }
 
