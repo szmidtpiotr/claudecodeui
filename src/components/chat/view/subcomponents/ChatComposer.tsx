@@ -32,6 +32,7 @@ import {
   PromptInputButton,
   PromptInputSubmit,
 } from '../../../../shared/view/ui';
+import { hasSoftKeyboard } from '../../../../utils/device';
 
 interface MentionableFile {
   name: string;
@@ -217,9 +218,13 @@ const ChatComposer = memo(function ChatComposer({
     ? hasQueuedDraft
       ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
       : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
-    : sendByCtrlEnter
-      ? t('input.hintText.ctrlEnter')
-      : t('input.hintText.enter');
+    : hasSoftKeyboard()
+      ? t('input.hintText.tapSend', {
+          defaultValue: 'Enter for new line • Tap send to submit • / for slash commands',
+        })
+      : sendByCtrlEnter
+        ? t('input.hintText.ctrlEnter')
+        : t('input.hintText.enter');
   const submitAriaLabel = canQueueDraft
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })

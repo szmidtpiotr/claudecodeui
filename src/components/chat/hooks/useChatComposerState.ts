@@ -32,6 +32,7 @@ import { escapeRegExp } from '../utils/chatFormatting';
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import { useQueuedPrompt } from './useQueuedPrompt';
+import { hasSoftKeyboard } from '../../../utils/device';
 
 type PendingViewSession = {
   startedAt: number;
@@ -1253,7 +1254,17 @@ export function useChatComposerState({
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           handleSubmit(event);
-        } else if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !sendByCtrlEnter) {
+        } else if (
+          !event.shiftKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !sendByCtrlEnter &&
+          // On an on-screen keyboard Enter is the only way to start a new line:
+          // there is no Shift+Enter to reach for, so sending on it makes a
+          // multi-line prompt impossible to type. Touch devices submit with the
+          // send button instead.
+          !hasSoftKeyboard()
+        ) {
           event.preventDefault();
           handleSubmit(event);
         }
