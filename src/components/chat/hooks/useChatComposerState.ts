@@ -57,6 +57,44 @@ function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
   return false;
 }
 
+// Server and Claude both cap an image at 5MB, but phone photos are routinely
+// 3-12MB (and iPhones hand over HEIC). Instead of rejecting those, re-encode
+// in the browser: longest side capped at MAX_IMAGE_EDGE, JPEG at decreasing
+// quality until it fits. Claude downsamples anything larger anyway, so no
+// useful detail is lost.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_EDGE = 2048;
+const UPLOADABLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+async function shrinkImage(buf: ArrayBuffer, file: File): Promise<File | null> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([buf], { type: file.type }));
+  } catch {
+    // Browser cannot decode it (e.g. HEIC on Chrome/Android).
+    return null;
+  }
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bitmap.close();
+    return null;
+  }
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const baseName = (file.name || 'image').replace(/\.[^.]+$/, '');
+  for (const quality of [0.85, 0.7, 0.55]) {
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (blob && blob.size <= MAX_IMAGE_BYTES) {
+      return new File([blob], `${baseName}.jpg`, { type: 'image/jpeg' });
+    }
+  }
+  return null;
+}
+
 // Per-session persistence for the thinking/effort level. Keyed by session id so
 // each session keeps its own choice instead of snapping back to DEFAULT_EFFORT.
 const EFFORT_STORAGE_PREFIX = 'effortLevel-';
@@ -576,6 +614,8 @@ export function useChatComposerState({
   }, []);
 
   const handleImageFiles = useCallback((files: File[]) => {
+    // A new attempt replaces messages about files that never got attached.
+    setImageErrors(new Map());
     const validFiles = files.filter((file) => {
       try {
         if (!file || typeof file !== 'object') {
@@ -587,18 +627,7 @@ export function useChatComposerState({
           return false;
         }
 
-        // file.size can be 0 for clipboard Blobs (browser reads lazily);
-        // only reject if size is definitely known to exceed the limit.
-        if (file.size > 5 * 1024 * 1024) {
-          const fileName = file.name || 'Unknown file';
-          setImageErrors((previous) => {
-            const next = new Map(previous);
-            next.set(fileName, 'File too large (max 5MB)');
-            return next;
-          });
-          return false;
-        }
-
+        // Oversized / non-uploadable formats are re-encoded below, not rejected.
         return true;
       } catch (error) {
         console.error('Error validating file:', error, file);
@@ -630,8 +659,9 @@ export function useChatComposerState({
           if (buf.byteLength === 0) {
             return fail('Image was empty — re-attach it');
           }
-          if (buf.byteLength > 5 * 1024 * 1024) {
-            return fail('File too large (max 5MB)');
+          if (buf.byteLength > MAX_IMAGE_BYTES || !UPLOADABLE_TYPES.has(file.type)) {
+            const shrunk = await shrinkImage(buf, file);
+            return shrunk ?? fail(`Could not use "${file.name || 'image'}" — format not readable by this browser or too large`);
           }
           if (!hasValidImageSignature(buf, file.type)) {
             return fail('Image looks corrupt (not a real image file) — re-attach it');
@@ -676,16 +706,31 @@ export function useChatComposerState({
   );
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
+    // Any raster image; big or non-uploadable ones (HEIC, 12MB JPEG) are
+    // re-encoded in handleImageFiles. No maxSize here: dropzone rejections are
+    // silent, which is exactly how phone photos used to vanish.
+    // SVG stays excluded: inline base64 SVG can execute JS in certain render contexts.
     accept: {
-      // SVG excluded: inline base64 SVG can execute JS in certain render contexts.
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
       'image/gif': ['.gif'],
       'image/webp': ['.webp'],
+      'image/heic': ['.heic'],
+      'image/heif': ['.heif'],
+      'image/avif': ['.avif'],
+      'image/bmp': ['.bmp'],
     },
-    maxSize: 5 * 1024 * 1024,
     maxFiles: 5,
     onDrop: handleImageFiles,
+    onDropRejected: (rejections) => {
+      setImageErrors((previous) => {
+        const next = new Map(previous);
+        rejections.forEach(({ file, errors }) => {
+          next.set(file.name || 'image', errors[0]?.message || 'File not accepted');
+        });
+        return next;
+      });
+    },
     noClick: true,
     noKeyboard: true,
   });

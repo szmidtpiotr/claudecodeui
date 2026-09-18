@@ -374,6 +374,22 @@ const ChatComposer = memo(function ChatComposer({
             </div>
           )}
 
+          {(() => {
+            // Errors for files that were never attached have no thumbnail to
+            // hang on — without this they were invisible and the photo just vanished.
+            const attachedNames = new Set(attachedImages.map((f) => f.name));
+            const orphanErrors = [...imageErrors].filter(([name]) => !attachedNames.has(name));
+            return orphanErrors.length > 0 ? (
+              <div className="mx-2 mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                {orphanErrors.map(([name, message]) => (
+                  <div key={name}>
+                    <span className="font-medium">{name}</span>: {message}
+                  </div>
+                ))}
+              </div>
+            ) : null;
+          })()}
+
           {attachedImages.length > 0 && (
             <PromptInputHeader>
               <div className="rounded-xl bg-muted/40 p-2">
