@@ -16,6 +16,7 @@ import type {
 import { readProviderSessionActiveModelChange } from '@/shared/utils.js';
 
 export const PROVIDER_MODELS_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+export const PROVIDER_MODELS_FALLBACK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const PROVIDER_MODELS_CACHE_VERSION = 1;
 
 type ProviderModelsServiceDependencies = {
@@ -202,9 +203,12 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     models: ProviderModelsDefinition,
   ): Promise<ProviderModelsCacheEntry> => {
     const currentTime = now();
+    const ttl = models.fallback === true
+      ? PROVIDER_MODELS_FALLBACK_CACHE_TTL_MS
+      : PROVIDER_MODELS_CACHE_TTL_MS;
     const entry: ProviderModelsCacheEntry = {
       updatedAt: currentTime,
-      expiresAt: currentTime + PROVIDER_MODELS_CACHE_TTL_MS,
+      expiresAt: currentTime + ttl,
       models,
     };
 

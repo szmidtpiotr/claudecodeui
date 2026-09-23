@@ -19,6 +19,7 @@ export const AZURE_FALLBACK_MODELS: ProviderModelsDefinition = {
     { value: 'o4-mini', label: 'o4-mini' },
   ],
   DEFAULT: 'gpt-4o',
+  fallback: true,
 };
 
 export class AzureProviderModels implements IProviderModels {

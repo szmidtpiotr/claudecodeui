@@ -11,6 +11,7 @@ import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
   ProviderCurrentActiveModel,
+  ProviderModelOption,
   ProviderModelsDefinition,
   ProviderSessionActiveModelChange,
 } from '@/shared/types.js';
@@ -22,14 +23,24 @@ import {
 const MODELS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 let modelsCache: { models: ProviderModelsDefinition; fetchedAt: number } | null = null;
 
-type PricingEntry = { input: string; output: string; usageFactor?: string };
+type PricingEntry = { input?: string; output?: string; usageFactor?: string };
 
+/**
+ * Matched top-down, so generation-specific rows win over the family catch-alls.
+ *
+ * The models endpoint carries no pricing, so published per-token prices are only
+ * listed for generations we have actually confirmed. Newer generations still match
+ * their family row and show the usage multiplier alone rather than a guessed price.
+ */
 const MODEL_PRICING: Array<{ pattern: RegExp; pricing: PricingEntry }> = [
-  { pattern: /^claude-fable/,        pricing: { input: '$5',    output: '$25',  usageFactor: '~2× limits' } },
-  { pattern: /^claude-opus-4-[89]/,  pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
-  { pattern: /^claude-opus-4/,       pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
-  { pattern: /^claude-sonnet-4/,     pricing: { input: '$3',    output: '$15',  usageFactor: '0.5× limits' } },
-  { pattern: /^claude-haiku-4/,      pricing: { input: '$0.80', output: '$4',   usageFactor: '0.25× limits' } },
+  { pattern: /^claude-fable-5(?![\d-])/, pricing: { input: '$5',    output: '$25',  usageFactor: '~2× limits' } },
+  { pattern: /^claude-opus-4/,           pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
+  { pattern: /^claude-sonnet-4/,         pricing: { input: '$3',    output: '$15',  usageFactor: '0.5× limits' } },
+  { pattern: /^claude-haiku-4/,          pricing: { input: '$0.80', output: '$4',   usageFactor: '0.25× limits' } },
+  { pattern: /^claude-fable/,            pricing: { usageFactor: '~2× limits' } },
+  { pattern: /^claude-opus/,             pricing: { usageFactor: '1× limits' } },
+  { pattern: /^claude-sonnet/,           pricing: { usageFactor: '0.5× limits' } },
+  { pattern: /^claude-haiku/,            pricing: { usageFactor: '0.25× limits' } },
 ];
 
 function getModelPricing(modelId: string): PricingEntry | null {
@@ -49,29 +60,79 @@ function buildModelDescription(
   const ctx = maxInputTokens && maxInputTokens >= 900_000 ? '1M ctx' : maxInputTokens ? `${Math.round(maxInputTokens / 1000)}k ctx` : null;
   const parts: string[] = [];
   if (ctx) parts.push(ctx);
-  if (pricing) {
+  if (pricing?.input && pricing.output) {
     parts.push(`$${pricing.input.replace('$', '')}/$${pricing.output.replace('$', '')} per Mtok`);
+  } else if (pricing?.usageFactor) {
+    parts.push(pricing.usageFactor);
   }
   return parts.length > 0 ? parts.join(' · ') : displayName;
 }
 
+/**
+ * Effort levels in the order the picker should show them, not the order the API
+ * happens to serialise them in.
+ */
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+type ClaudeApiModelCapability = { supported?: boolean } | undefined;
+
+type ClaudeApiModel = {
+  id: string;
+  display_name: string;
+  max_input_tokens?: number | null;
+  capabilities?: {
+    effort?: { supported?: boolean } & Record<string, ClaudeApiModelCapability | boolean>;
+  };
+};
+
+/**
+ * Translates the model endpoint's `capabilities.effort` block into the picker's
+ * effort shape. Older models report `supported: false` and get no effort control.
+ */
+function buildModelEffort(model: ClaudeApiModel): ProviderModelOption['effort'] | undefined {
+  const effort = model.capabilities?.effort;
+  if (!effort || effort.supported !== true) {
+    return undefined;
+  }
+
+  const values = EFFORT_LEVELS
+    .filter((level) => {
+      const capability = effort[level];
+      return typeof capability === 'object' && capability?.supported === true;
+    })
+    .map((level) => ({ value: level as string }));
+
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  const preferred = values.some((entry) => entry.value === 'high')
+    ? 'high'
+    : values[values.length - 1].value;
+
+  return { default: preferred, values };
+}
+
 function buildModelsDefinition(
-  apiModels: Array<{ id: string; display_name: string; max_input_tokens?: number | null }>,
+  apiModels: ClaudeApiModel[],
   authType?: 'api_key' | 'oauth',
 ): ProviderModelsDefinition {
   const defaultDesc = authType === 'oauth'
     ? 'Best available model · 1M ctx'
     : 'Best available model · 1M ctx · API default';
-  const OPTIONS = [
+  const OPTIONS: ProviderModelOption[] = [
     {
       value: 'default',
       label: 'Default (recommended)',
       description: defaultDesc,
+      // `default` resolves to the newest model, so it inherits that model's effort range.
+      ...(apiModels[0] ? { effort: buildModelEffort(apiModels[0]) } : {}),
     },
     ...apiModels.map((m) => ({
       value: m.id,
       label: m.display_name.replace(/^Claude\s+/i, ''),
       description: buildModelDescription(m.display_name, m.id, m.max_input_tokens, authType),
+      effort: buildModelEffort(m),
     })),
   ];
   return { OPTIONS, DEFAULT: 'default' };
@@ -88,7 +149,8 @@ async function fetchDynamicModels(): Promise<ProviderModelsDefinition | null> {
   try {
     const client = new Anthropic(buildAnthropicClientOptions(credential));
     const result = await client.models.list();
-    const models = (result.data ?? []).filter(
+    // The SDK model type predates `capabilities`, which the endpoint does return.
+    const models = ((result.data ?? []) as unknown as ClaudeApiModel[]).filter(
       (m) => typeof m.id === 'string' && typeof m.display_name === 'string',
     );
 
@@ -169,6 +231,7 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
   ],
   DEFAULT: 'default',
+  fallback: true,
 };
 type ClaudeInitEvent = {
   sessionId?: string;

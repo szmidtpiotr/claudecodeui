@@ -577,6 +577,7 @@ export const CURSOR_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
   ],
   DEFAULT: "composer-2.5-fast",
+  fallback: true,
 };
 
 type CursorModelRow = {

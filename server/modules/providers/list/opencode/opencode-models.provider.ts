@@ -63,6 +63,7 @@ export const OPENCODE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
   ],
   DEFAULT: 'anthropic/claude-sonnet-4-5',
+  fallback: true,
 };
 
 const OPEN_CODE_MODELS_TIMEOUT_MS = 20_000;
@@ -283,7 +284,7 @@ async function appendAzureDeployments(base: ProviderModelsDefinition): Promise<P
 
     if (!azureOptions.length) return base;
 
-    return { OPTIONS: [...base.OPTIONS, ...azureOptions], DEFAULT: base.DEFAULT };
+    return { OPTIONS: [...base.OPTIONS, ...azureOptions], DEFAULT: base.DEFAULT, fallback: base.fallback };
   } catch {
     return base;
   }

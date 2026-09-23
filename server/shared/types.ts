@@ -89,6 +89,12 @@ export type ProviderModelOption = {
 export type ProviderModelsDefinition = {
   OPTIONS: ProviderModelOption[];
   DEFAULT: string;
+  /**
+   * Set when the catalog is the provider's built-in fallback list rather than a
+   * live answer from the provider. Fallback catalogs are cached only briefly so
+   * a transient provider failure cannot hide new models for hours.
+   */
+  fallback?: boolean;
 };
 
 /**

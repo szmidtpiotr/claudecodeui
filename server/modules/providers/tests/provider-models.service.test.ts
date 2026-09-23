@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   createProviderModelsService,
   PROVIDER_MODELS_CACHE_TTL_MS,
+  PROVIDER_MODELS_FALLBACK_CACHE_TTL_MS,
 } from '@/modules/providers/services/provider-models.service.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -125,6 +126,55 @@ test('provider models are cached for the three-day ttl', async () => {
     const refreshed = await service.getProviderModels('codex');
     assert.equal(loadCount, 2);
     assert.equal(refreshed.models.DEFAULT, 'codex-2');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('fallback catalogs are cached only for the short fallback ttl', async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'provider-model-cache-fallback-'));
+  let currentTime = 1_000;
+  let loadCount = 0;
+
+  try {
+    const service = createProviderModelsService({
+      cachePath: path.join(tempRoot, 'models-cache.json'),
+      now: () => currentTime,
+      resolveProvider: () => ({
+        models: {
+          getSupportedModels: async () => {
+            loadCount += 1;
+            // First answer is the provider's built-in list, then the live one arrives.
+            return loadCount === 1
+              ? { ...createModels('claude-fallback'), fallback: true }
+              : createModels('claude-live');
+          },
+          getCurrentActiveModel: async () => createCurrentActiveModel('claude-active'),
+          changeActiveModel: async (input) => createSessionActiveModelChange('claude', input),
+        },
+      }),
+    });
+
+    await service.getProviderModels('claude');
+    assert.equal(loadCount, 1);
+
+    currentTime += PROVIDER_MODELS_FALLBACK_CACHE_TTL_MS - 1;
+    await service.getProviderModels('claude');
+    assert.equal(loadCount, 1);
+
+    currentTime += 2;
+    const refreshed = await service.getProviderModels('claude');
+    assert.equal(loadCount, 2);
+    assert.equal(refreshed.models.DEFAULT, 'claude-live');
+
+    // A live catalog goes back to the full ttl.
+    currentTime += PROVIDER_MODELS_FALLBACK_CACHE_TTL_MS + 1;
+    await service.getProviderModels('claude');
+    assert.equal(loadCount, 2);
+
+    currentTime += PROVIDER_MODELS_CACHE_TTL_MS;
+    await service.getProviderModels('claude');
+    assert.equal(loadCount, 3);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
