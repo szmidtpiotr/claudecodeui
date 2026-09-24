@@ -26,19 +26,23 @@ export const isValidRefreshedToken = (token: unknown): token is string =>
  * allowing for client clock skew. Anything unparseable counts as expired so we
  * never send garbage to the server.
  */
-export const isTokenExpired = (token: string): boolean => {
+const readTokenClaims = (token: string): { iat?: number; exp?: number } | null => {
   try {
     const payloadSegment = token.split('.')[1];
     if (!payloadSegment) {
-      return true;
+      return null;
     }
 
     const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-    const { exp } = JSON.parse(atob(normalized)) as { exp?: number };
-    return typeof exp !== 'number' || exp * 1000 + TOKEN_EXPIRY_SKEW_MS <= Date.now();
+    return JSON.parse(atob(normalized)) as { iat?: number; exp?: number };
   } catch {
-    return true;
+    return null;
   }
+};
+
+export const isTokenExpired = (token: string): boolean => {
+  const exp = readTokenClaims(token)?.exp;
+  return typeof exp !== 'number' || exp * 1000 + TOKEN_EXPIRY_SKEW_MS <= Date.now();
 };
 
 /**
@@ -72,11 +76,27 @@ export const readRawAuthToken = (): string | null => {
  * Persists a token that originated from an untrusted source (the refreshed-token
  * response header). The value is validated for JWT shape first; a malformed or
  * injected header is ignored rather than allowed to overwrite a working token.
+ *
+ * The header can also be stale: the browser HTTP cache stores it with the
+ * response, and a later 304 revalidation hands the cached header back verbatim.
+ * That replayed a week-old token over a fresh login on every sign-in, and the
+ * next request got a 403. So an expired token, or one issued before the token we
+ * already hold, is never allowed to replace it.
  */
 export const persistAuthToken = (token: unknown): void => {
-  if (!isValidRefreshedToken(token)) {
+  if (!isValidRefreshedToken(token) || isTokenExpired(token)) {
     return;
   }
+
+  const current = readRawAuthToken();
+  if (current) {
+    const currentIat = readTokenClaims(current)?.iat ?? 0;
+    const nextIat = readTokenClaims(token)?.iat ?? 0;
+    if (nextIat <= currentIat) {
+      return;
+    }
+  }
+
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
 };
 

@@ -74,6 +74,9 @@ const authenticateToken = async (req, res, next) => {
       if (now > decoded.iat + halfLife) {
         const newToken = generateToken(user);
         res.setHeader('X-Refreshed-Token', newToken);
+        // A cached copy of this response would replay the token long after it
+        // expires (a 304 revalidation returns the stored headers verbatim).
+        res.setHeader('Cache-Control', 'no-store');
       }
     }
 
