@@ -35,6 +35,13 @@ import { createNormalizedMessage } from './shared/utils.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
+// Sessions the user stopped; their generator loop must not report the forced
+// shutdown as an error or a normal completion.
+const abortedSessionIds = new Set();
+// How long a graceful interrupt() may take before the CLI process is killed.
+// interrupt() never resolves once the turn's result has arrived and the CLI is
+// only kept alive by a background task (e.g. a polling Bash loop).
+const INTERRUPT_TIMEOUT_MS = 3000;
 
 function createPushChannel() {
   const queue = [];
@@ -799,6 +806,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Clean up temporary image files
     await cleanupTempFiles(tempImagePaths, tempDir);
 
+    // A user stop already sent its own 'complete' from the abort handler
+    if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
+      return;
+    }
+
     // Send completion event
     ws.send(createNormalizedMessage({ kind: 'complete', exitCode: 0, isNewSession: !sessionId && !!command, sessionId: capturedSessionId, provider: 'claude' }));
     notifyRunStopped({
@@ -821,6 +833,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Clean up temporary image files on error
     await cleanupTempFiles(tempImagePaths, tempDir);
+
+    // The process was killed because the user pressed Stop — not a failure
+    if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
+      return;
+    }
 
     // Check if Claude CLI is installed for a clearer error message
     const installed = await providerAuthService.isProviderInstalled('claude');
@@ -858,8 +875,30 @@ async function abortClaudeSDKSession(sessionId) {
   try {
     console.log(`Aborting SDK session: ${sessionId}`);
 
-    // Call interrupt() on the query instance
-    await session.instance.interrupt();
+    abortedSessionIds.add(sessionId);
+
+    // Ask the CLI to stop gracefully; if it does not answer in time (it never
+    // does while only a background task keeps it alive), kill the process.
+    let timer;
+    const interrupted = await Promise.race([
+      Promise.resolve()
+        .then(() => session.instance.interrupt())
+        .then(() => true, (err) => {
+          console.warn(`interrupt() failed for ${sessionId}:`, err?.message || err);
+          return false;
+        }),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(false), INTERRUPT_TIMEOUT_MS); }),
+    ]);
+    clearTimeout(timer);
+
+    if (!interrupted) {
+      console.log(`interrupt() did not finish for ${sessionId}, closing the CLI process`);
+      try {
+        session.instance.close();
+      } catch (err) {
+        console.warn(`close() failed for ${sessionId}:`, err?.message || err);
+      }
+    }
 
     // Close push channel so the streaming-input iterator terminates cleanly
     session.pushChannel?.close();
