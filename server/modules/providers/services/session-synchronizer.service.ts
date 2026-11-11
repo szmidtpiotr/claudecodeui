@@ -1,11 +1,14 @@
 import { scanStateDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
+import { sessionPruneService } from '@/modules/providers/services/session-prune.service.js';
 import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import type { LLMProvider } from '@/shared/types.js';
 
 type SessionSynchronizeResult = {
   processedByProvider: Record<LLMProvider, number>;
   failures: string[];
+  /** Orphaned rows dropped by the prune pass that follows a clean scan. */
+  pruned: number;
 };
 
 /**
@@ -53,6 +56,19 @@ export const sessionSynchronizerService = {
       );
     }
 
+    // Scanning only adds rows, so orphans left behind by the CLI's own
+    // transcript retention are removed here. It is skipped after a failed scan
+    // because a provider that just errored cannot be told apart from one whose
+    // files are temporarily unreadable.
+    let pruned = 0;
+    if (failures.length === 0) {
+      try {
+        pruned = (await sessionPruneService.pruneSessionsWithMissingTranscripts()).removed;
+      } catch (error: unknown) {
+        console.warn('[Sessions] Session prune failed:', error);
+      }
+    }
+
     // Titling is a best-effort follow-up: a failed or disabled generator must
     // never make a successful session scan look like a failed one.
     void sessionTitleService.generateMissingTitles().catch((error: unknown) => {
@@ -62,6 +78,7 @@ export const sessionSynchronizerService = {
     return {
       processedByProvider,
       failures,
+      pruned,
     };
   },
 

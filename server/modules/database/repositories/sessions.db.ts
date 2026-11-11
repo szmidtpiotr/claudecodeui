@@ -343,4 +343,82 @@ export const sessionsDb = {
     const db = getConnection();
     return db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId).changes > 0;
   },
+
+  /**
+   * Lists every indexed session together with the transcript it was built from.
+   *
+   * The prune pass uses this to find rows whose provider artifact no longer
+   * exists, which is what happens when the CLI's own retention window deletes
+   * an old transcript: the row survives and the UI keeps offering a thread
+   * that opens empty.
+   */
+  listSessionTranscriptRefs(): Array<{
+    session_id: string;
+    provider: string;
+    jsonl_path: string | null;
+    updated_at: string | null;
+  }> {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT session_id, provider, jsonl_path, updated_at
+         FROM sessions`
+      )
+      .all() as Array<{
+        session_id: string;
+        provider: string;
+        jsonl_path: string | null;
+        updated_at: string | null;
+      }>;
+  },
+
+  /**
+   * Drops every session row indexed from one transcript path.
+   *
+   * A path is deleted rather than matched per session because some providers
+   * keep many sessions inside a single artifact file (opencode's SQLite file),
+   * so losing that file invalidates all of them at once.
+   */
+  deleteSessionsByJsonlPath(jsonlPath: string): string[] {
+    const db = getConnection();
+    const rows = db
+      .prepare('SELECT session_id FROM sessions WHERE jsonl_path = ?')
+      .all(jsonlPath) as Array<{ session_id: string }>;
+
+    if (rows.length === 0) {
+      return [];
+    }
+
+    db.prepare('DELETE FROM sessions WHERE jsonl_path = ?').run(jsonlPath);
+    return rows.map((row) => row.session_id);
+  },
+
+  /**
+   * Deletes the given session rows in one transaction.
+   *
+   * Ids are chunked because SQLite caps the number of bound parameters per
+   * statement, and a prune of a long-neglected index can span thousands of rows.
+   */
+  deleteSessionsByIds(sessionIds: string[]): number {
+    if (sessionIds.length === 0) {
+      return 0;
+    }
+
+    const db = getConnection();
+    const chunkSize = 500;
+    let deleted = 0;
+
+    const run = db.transaction((ids: string[]) => {
+      for (let index = 0; index < ids.length; index += chunkSize) {
+        const chunk = ids.slice(index, index + chunkSize);
+        const placeholders = chunk.map(() => '?').join(', ');
+        deleted += db
+          .prepare(`DELETE FROM sessions WHERE session_id IN (${placeholders})`)
+          .run(...chunk).changes;
+      }
+    });
+
+    run(sessionIds);
+    return deleted;
+  },
 };

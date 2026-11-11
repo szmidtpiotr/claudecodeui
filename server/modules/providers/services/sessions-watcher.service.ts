@@ -4,6 +4,7 @@ import { promises as fsPromises } from 'node:fs';
 
 import chokidar, { type FSWatcher } from 'chokidar';
 
+import { sessionPruneService } from '@/modules/providers/services/session-prune.service.js';
 import { sessionSynchronizerService } from '@/modules/providers/services/session-synchronizer.service.js';
 import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import {
@@ -15,7 +16,7 @@ import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { LLMProvider } from '@/shared/types.js';
 import { getProjectsWithSessions } from '@/modules/projects/index.js';
 
-type WatcherEventType = 'add' | 'change';
+type WatcherEventType = 'add' | 'change' | 'unlink';
 
 const PROVIDER_WATCH_PATHS: Array<{ provider: LLMProvider; rootPath: string }> = [
   {
@@ -226,6 +227,41 @@ async function onUpdate(
 }
 
 /**
+ * Drops indexed sessions whose transcript was just deleted on disk.
+ *
+ * Without this the row survives its own conversation: the sidebar keeps the
+ * thread and opening it shows nothing, because the transcript was the only
+ * copy of the messages.
+ */
+async function onRemove(filePath: string, provider: LLMProvider): Promise<void> {
+  if (!isWatcherTargetFile(provider, filePath)) {
+    return;
+  }
+
+  try {
+    const removedIds = sessionPruneService.pruneSessionsForDeletedTranscript(filePath);
+    if (removedIds.length === 0) {
+      return;
+    }
+
+    console.log(`Session removal triggered by unlink event for provider "${provider}"`, {
+      filePath,
+      removedIds,
+    });
+
+    for (const removedId of removedIds) {
+      queuePendingWatcherUpdate('unlink', provider, removedId);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Session watcher removal failed for provider "${provider}"`, {
+      filePath,
+      error: message,
+    });
+  }
+}
+
+/**
  * Starts provider filesystem watchers and performs initial DB synchronization.
  */
 export async function initializeSessionsWatcher(): Promise<void> {
@@ -242,6 +278,7 @@ export async function initializeSessionsWatcher(): Promise<void> {
   console.log('Initial session synchronization complete', {
     processedByProvider: initialSync.processedByProvider,
     failures: initialSync.failures,
+    pruned: initialSync.pruned,
   });
 
   sessionTitleService.startBacklogDrain();
@@ -267,6 +304,9 @@ export async function initializeSessionsWatcher(): Promise<void> {
         })
         .on('change', (filePath: string) => {
           void onUpdate('change', filePath, provider);
+        })
+        .on('unlink', (filePath: string) => {
+          void onRemove(filePath, provider);
         })
         .on('error', (error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);

@@ -109,8 +109,8 @@ export interface ProjectsUpdatedMessage {
   updatedSessionIds?: string[];
   watchProvider?: LLMProvider;
   watchProviders?: LLMProvider[];
-  changeType?: 'add' | 'change';
-  changeTypes?: Array<'add' | 'change'>;
+  changeType?: 'add' | 'change' | 'unlink';
+  changeTypes?: Array<'add' | 'change' | 'unlink'>;
   batched?: boolean;
   [key: string]: unknown;
 }

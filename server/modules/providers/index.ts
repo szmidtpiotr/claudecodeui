@@ -1,3 +1,4 @@
+export { sessionPruneService } from './services/session-prune.service.js';
 export { sessionSynchronizerService } from './services/session-synchronizer.service.js';
 export { providerSkillsService } from './services/skills.service.js';
 
