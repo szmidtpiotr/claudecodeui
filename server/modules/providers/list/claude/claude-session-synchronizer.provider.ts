@@ -11,6 +11,7 @@ import {
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
+import { readForkedFromSessionId } from '@/modules/providers/list/claude/claude-fork-utils.js';
 
 type ParsedSession = {
   sessionId: string;
@@ -21,6 +22,8 @@ type ParsedSession = {
    * scan did not change, so the stored `name_source` survives the upsert.
    */
   nameSource?: SessionNameSource;
+  /** Parent session from the transcript's `forkedFrom` marker, if any. */
+  parentSessionId?: string | null;
 };
 
 /** How the title event at the end of a transcript was produced. */
@@ -60,7 +63,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         timestamps.createdAt,
         timestamps.updatedAt,
         filePath,
-        parsed.nameSource
+        parsed.nameSource,
+        parsed.parentSessionId
       );
       processed += 1;
     }
@@ -91,7 +95,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       timestamps.createdAt,
       timestamps.updatedAt,
       filePath,
-      parsed.nameSource
+      parsed.nameSource,
+      parsed.parentSessionId
     );
   }
 
@@ -148,6 +153,10 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       return {
         sessionId,
         projectPath,
+        // Copied rows of a fork all carry the marker, so the first row with a
+        // session id is enough. Forks made by the CLI or desktop app land in
+        // the tree the same way as forks made here.
+        parentSessionId: readForkedFromSessionId(data),
       };
     });
 

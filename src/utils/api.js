@@ -129,6 +129,13 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ projectId }),
     }),
+  // Forks a Claude session into a derived session, optionally up to one
+  // message id. Resolves to { sessionId, parentSessionId, title, ... }.
+  forkSession: (sessionId, { upToMessageId, title } = {}) =>
+    authenticatedFetch(`/api/providers/sessions/${encodeURIComponent(sessionId)}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ upToMessageId, title }),
+    }),
   renameSession: (sessionId, summary) =>
     authenticatedFetch(`/api/providers/sessions/${sessionId}`, {
       method: 'PUT',

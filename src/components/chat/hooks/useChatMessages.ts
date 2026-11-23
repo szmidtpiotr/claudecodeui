@@ -122,6 +122,8 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
             type: 'assistant',
             content: text,
             timestamp: msg.timestamp,
+            // Transcript-derived id (`<uuid>_<n>`), used to fork up to this reply.
+            messageId: msg.id,
             ...sharedMetadata,
           });
         }

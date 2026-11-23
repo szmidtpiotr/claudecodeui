@@ -18,6 +18,7 @@ type SessionRow = {
   jsonl_path: string | null;
   custom_name: string | null;
   name_source: SessionNameSource | null;
+  parent_session_id?: string | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -31,6 +32,7 @@ type SessionMetadataLookupRow = Pick<
   | 'jsonl_path'
   | 'custom_name'
   | 'name_source'
+  | 'parent_session_id'
   | 'isArchived'
   | 'created_at'
   | 'updated_at'
@@ -66,7 +68,8 @@ export const sessionsDb = {
     createdAt?: string,
     updatedAt?: string,
     jsonlPath?: string | null,
-    nameSource?: SessionNameSource
+    nameSource?: SessionNameSource,
+    parentSessionId?: string | null
   ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
@@ -78,8 +81,8 @@ export const sessionsDb = {
     projectsDb.createProjectPath(normalizedProjectPath);
 
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, custom_name, name_source, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO sessions (session_id, provider, custom_name, name_source, project_path, jsonl_path, parent_session_id, isArchived, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
        ON CONFLICT(session_id) DO UPDATE SET
          provider = excluded.provider,
          updated_at = excluded.updated_at,
@@ -87,7 +90,8 @@ export const sessionsDb = {
          jsonl_path = excluded.jsonl_path,
          isArchived = 0,
          custom_name = COALESCE(excluded.custom_name, sessions.custom_name),
-         name_source = COALESCE(excluded.name_source, sessions.name_source)`
+         name_source = COALESCE(excluded.name_source, sessions.name_source),
+         parent_session_id = COALESCE(excluded.parent_session_id, sessions.parent_session_id)`
     ).run(
       sessionId,
       provider,
@@ -95,6 +99,7 @@ export const sessionsDb = {
       nameSource ?? null,
       normalizedProjectPath,
       jsonlPath ?? null,
+      parentSessionId && parentSessionId !== sessionId ? parentSessionId : null,
       createdAtValue,
       updatedAtValue
     );
@@ -145,6 +150,60 @@ export const sessionsDb = {
   },
 
   /**
+   * Records the session a derived (forked) session came from. A self-reference
+   * is ignored so a malformed marker cannot create a one-node cycle.
+   */
+  setSessionParent(sessionId: string, parentSessionId: string | null): void {
+    const db = getConnection();
+    const parent = parentSessionId && parentSessionId !== sessionId ? parentSessionId : null;
+    db.prepare(
+      `UPDATE sessions
+       SET parent_session_id = ?
+       WHERE session_id = ?`
+    ).run(parent, sessionId);
+  },
+
+  /**
+   * Walks the parent chain upwards and returns the ancestor ids, nearest first.
+   *
+   * The walk stops at a missing row, at `maxDepth`, or when it meets an id it
+   * has already seen, so corrupt data with a cycle cannot loop forever.
+   */
+  getSessionAncestorIds(sessionId: string, maxDepth = 32): string[] {
+    const db = getConnection();
+    const statement = db.prepare('SELECT parent_session_id FROM sessions WHERE session_id = ?');
+    const ancestors: string[] = [];
+    const seen = new Set<string>([sessionId]);
+    let current = sessionId;
+
+    while (ancestors.length < maxDepth) {
+      const row = statement.get(current) as { parent_session_id: string | null } | undefined;
+      const parent = row?.parent_session_id ?? null;
+      if (!parent || seen.has(parent)) {
+        break;
+      }
+      ancestors.push(parent);
+      seen.add(parent);
+      current = parent;
+    }
+
+    return ancestors;
+  },
+
+  /** Direct derived sessions of one session, oldest first. */
+  getChildSessions(parentSessionId: string): SessionRow[] {
+    const db = getConnection();
+    return db
+      .prepare(
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
+         FROM sessions
+         WHERE parent_session_id = ?
+         ORDER BY datetime(created_at) ASC, session_id ASC`
+      )
+      .all(parentSessionId) as SessionRow[];
+  },
+
+  /**
    * Returns the oldest-activity-first batch of sessions whose title is still
    * machine-derived, so a title generator can work through the backlog without
    * ever touching a name the user or a previous generation run set.
@@ -155,7 +214,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 0
            AND (name_source IS NULL OR name_source = 'derived')
@@ -170,7 +229,7 @@ export const sessionsDb = {
     const db = getConnection();
     const row = db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at, provider_session_id
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at, provider_session_id
          FROM sessions
          WHERE session_id = ?
          ORDER BY updated_at DESC
@@ -185,7 +244,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 0`
       )
@@ -240,7 +299,7 @@ export const sessionsDb = {
     const db = getConnection();
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE isArchived = 1
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC`
@@ -253,7 +312,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0`
@@ -270,7 +329,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?`
       )
@@ -282,7 +341,7 @@ export const sessionsDb = {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     return db
       .prepare(
-        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, isArchived, created_at, updated_at
+        `SELECT session_id, provider, project_path, jsonl_path, custom_name, name_source, parent_session_id, isArchived, created_at, updated_at
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0

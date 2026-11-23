@@ -1,5 +1,8 @@
-import { Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, Plus } from 'lucide-react';
 import type { TFunction } from 'i18next';
+
+import { ancestorIdsInTree, buildSessionTree, hideCollapsedRows } from '../../../../../shared/sessionTree';
 
 import { Button } from '../../../../shared/view/ui';
 import type { Project, ProjectSession, LLMProvider } from '../../../../types/app';
@@ -39,6 +42,29 @@ type SidebarProjectSessionsProps = {
   attentionSessionIds?: Set<string>;
   t: TFunction;
 };
+
+const FORK_INDENT_PX = 12;
+const MAX_FORK_INDENT_DEPTH = 4;
+const COLLAPSED_FORKS_STORAGE_KEY = 'sidebar-collapsed-forks';
+
+function readCollapsedForks(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_FORKS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedForks(ids: Set<string>): void {
+  try {
+    // Bounded so ids of long-gone sessions cannot grow the entry forever.
+    localStorage.setItem(COLLAPSED_FORKS_STORAGE_KEY, JSON.stringify([...ids].slice(-500)));
+  } catch {
+    // Storage unavailable (private mode): collapse state just is not kept.
+  }
+}
 
 function SessionListSkeleton() {
   return (
@@ -84,20 +110,59 @@ export default function SidebarProjectSessions({
   attentionSessionIds,
   t,
 }: SidebarProjectSessionsProps) {
-  if (!isExpanded) {
-    return null;
-  }
-
-  const hasSessions = sessions.length > 0;
-
-  const sortedSessions = [...sessions].sort((a, b) => {
+  const sortedSessions = useMemo(() => [...sessions].sort((a, b) => {
     const aPinned = pinnedSessionIds.has(a.id);
     const bPinned = pinnedSessionIds.has(b.id);
     if (aPinned !== bPinned) return aPinned ? -1 : 1;
     const aTime = a.lastActivity || a.updated_at || a.createdAt || a.created_at || '';
     const bTime = b.lastActivity || b.updated_at || b.createdAt || b.created_at || '';
     return bTime.localeCompare(aTime);
-  });
+  }), [sessions, pinnedSessionIds]);
+
+  // Derived (forked) sessions nest under their parent within the project.
+  const treeRows = useMemo(
+    () => buildSessionTree(
+      sortedSessions.map((session) => ({
+        ...session,
+        parentSessionId: typeof session.parentSessionId === 'string' ? session.parentSessionId : null,
+      })),
+      pinnedSessionIds,
+    ),
+    [sortedSessions, pinnedSessionIds],
+  );
+
+  const [collapsedForks, setCollapsedForks] = useState<Set<string>>(readCollapsedForks);
+  const selectedSessionId = selectedSession?.id ?? null;
+  const selectedAncestors = useMemo(() => ancestorIdsInTree(treeRows, selectedSessionId), [treeRows, selectedSessionId]);
+
+  // Opening a derived session reveals it even if its branch was collapsed.
+  useEffect(() => {
+    if (![...selectedAncestors].some((id) => collapsedForks.has(id))) return;
+    setCollapsedForks((previous) => {
+      const next = new Set([...previous].filter((id) => !selectedAncestors.has(id)));
+      writeCollapsedForks(next);
+      return next;
+    });
+  }, [selectedAncestors, collapsedForks]);
+
+  const toggleForkBranch = (sessionId: string) => {
+    setCollapsedForks((previous) => {
+      const next = new Set(previous);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      writeCollapsedForks(next);
+      return next;
+    });
+  };
+
+  const visibleRows = useMemo(() => hideCollapsedRows(treeRows, collapsedForks), [treeRows, collapsedForks]);
+  const hasForks = treeRows.some((row) => row.hasChildren);
+
+  if (!isExpanded) {
+    return null;
+  }
+
+  const hasSessions = sessions.length > 0;
 
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
@@ -132,29 +197,78 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          {sortedSessions.map((session) => (
-            <SidebarSessionItem
-              key={session.id}
-              project={project}
-              session={session}
-              selectedSession={selectedSession}
-              currentTime={currentTime}
-              editingSession={editingSession}
-              editingSessionName={editingSessionName}
-              onEditingSessionNameChange={onEditingSessionNameChange}
-              onStartEditingSession={onStartEditingSession}
-              onCancelEditingSession={onCancelEditingSession}
-              onSaveEditingSession={onSaveEditingSession}
-              onProjectSelect={onProjectSelect}
-              onSessionSelect={onSessionSelect}
-              onDeleteSession={onDeleteSession}
-              onArchiveSession={onArchiveSession}
-              isPinned={pinnedSessionIds.has(session.id)}
-              onTogglePin={onTogglePin}
-              needsAttention={attentionSessionIds?.has(session.id) ?? false}
-              t={t}
-            />
-          ))}
+          {visibleRows.map(({ session: treeSession, parentId, depth, hasChildren, isLastSibling, continuationDepths }) => {
+            const session = treeSession as SessionWithProvider;
+            const indentDepth = Math.min(depth, MAX_FORK_INDENT_DEPTH);
+            const isCollapsed = collapsedForks.has(session.id);
+            const sessionLabel = String(session.summary || session.name || session.title || t('sessions.unnamed'));
+            return (
+              <div
+                key={session.id}
+                data-session-id={session.id}
+                data-parent-session-id={parentId ?? undefined}
+                className="relative flex min-w-0 items-stretch"
+                style={depth > 0 ? { paddingLeft: `${indentDepth * FORK_INDENT_PX}px` } : undefined}
+              >
+                {parentId && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0"
+                    style={{ left: `${(indentDepth - 1) * FORK_INDENT_PX + FORK_INDENT_PX / 2}px`, width: `${FORK_INDENT_PX}px` }}
+                  >
+                    <span className={`absolute left-0 top-0 border-l border-muted-foreground/40 ${isLastSibling ? 'bottom-1/2' : 'bottom-0'}`} />
+                    <span className="absolute left-0 top-1/2 border-t border-muted-foreground/40" style={{ width: hasChildren ? '6px' : '10px' }} />
+                  </span>
+                )}
+                {continuationDepths.filter((ancestorDepth) => ancestorDepth <= MAX_FORK_INDENT_DEPTH).map((ancestorDepth) => (
+                  <span
+                    key={ancestorDepth}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 border-l border-muted-foreground/40"
+                    style={{ left: `${(ancestorDepth - 1) * FORK_INDENT_PX + FORK_INDENT_PX / 2}px` }}
+                  />
+                ))}
+                {hasForks && (
+                  hasChildren ? (
+                    <button
+                      type="button"
+                      className="relative flex w-3 flex-shrink-0 items-center justify-center rounded text-foreground/60 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-expanded={!isCollapsed}
+                      title={isCollapsed ? t('sessions.expandForks') : t('sessions.collapseForks')}
+                      aria-label={isCollapsed
+                        ? t('sessions.expandForksFor', { session: sessionLabel })
+                        : t('sessions.collapseForksFor', { session: sessionLabel })}
+                      onClick={() => toggleForkBranch(session.id)}
+                    >
+                      <ChevronRight className={`h-3 w-3 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} strokeWidth={2.5} aria-hidden="true" />
+                    </button>
+                  ) : <span className="w-3 flex-shrink-0" aria-hidden="true" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <SidebarSessionItem
+                    project={project}
+                    session={session}
+                    selectedSession={selectedSession}
+                    currentTime={currentTime}
+                    editingSession={editingSession}
+                    editingSessionName={editingSessionName}
+                    onEditingSessionNameChange={onEditingSessionNameChange}
+                    onStartEditingSession={onStartEditingSession}
+                    onCancelEditingSession={onCancelEditingSession}
+                    onSaveEditingSession={onSaveEditingSession}
+                    onProjectSelect={onProjectSelect}
+                    onSessionSelect={onSessionSelect}
+                    onDeleteSession={onDeleteSession}
+                    onArchiveSession={onArchiveSession}
+                    isPinned={pinnedSessionIds.has(session.id)}
+                    onTogglePin={onTogglePin}
+                    needsAttention={attentionSessionIds?.has(session.id) ?? false}
+                    t={t}
+                  />
+                </div>
+              </div>
+            );
+          })}
 
           {hasMoreSessions && (
             <Button
