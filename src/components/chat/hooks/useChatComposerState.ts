@@ -1079,8 +1079,9 @@ export function useChatComposerState({
       setImageErrors(new Map());
       setIsTextareaExpanded(false);
       // Effort is per-session and persisted; do NOT reset it after each send.
-
-      safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+      // No draft cleanup here: the input was cleared before the upload above,
+      // which already dropped the saved draft. Removing it again now would wipe
+      // text the user typed (in this or another chat) while the upload ran.
     },
     [
       selectedSession,
