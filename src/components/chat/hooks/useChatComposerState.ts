@@ -255,6 +255,16 @@ const getNotificationSessionSummary = (
   return normalizedFallback.length > 80 ? `${normalizedFallback.slice(0, 77)}...` : normalizedFallback;
 };
 
+/**
+ * Enter that CONFIRMS an IME candidate must not also submit.
+ *
+ * `event.isComposing` alone is not enough: Safari fires `compositionend` BEFORE the confirming
+ * Enter's `keydown`, so the flag is already `false` by the time the handler runs. A tight window
+ * after `compositionend` covers it: that sequence is synchronous (microseconds), while a human
+ * pressing Enter a second time takes >= 100ms and never lands inside it.
+ */
+const SAFARI_IME_RACE_WINDOW_MS = 30;
+
 export function useChatComposerState({
   selectedProject,
   selectedSession,
@@ -294,6 +304,34 @@ export function useChatComposerState({
   // Mirror chatMessages in a ref so abort callbacks always read the latest value
   // without stale closure issues (e.g. when ESC fires before the re-render that
   // adds the user message has completed).
+  // Composition is tracked on `window` in the capture phase rather than on the textarea, so a
+  // composition that starts in one field and ends after focus moves still closes cleanly.
+  const isComposingRef = useRef(false);
+  const lastCompositionEndAtRef = useRef(0);
+
+  useEffect(() => {
+    const onStart = () => {
+      isComposingRef.current = true;
+    };
+    const onEnd = () => {
+      isComposingRef.current = false;
+      lastCompositionEndAtRef.current = performance.now();
+    };
+    // `blur` does not bubble, but a capture-phase listener on `window` still sees it; otherwise
+    // a composition abandoned by clicking away would stay open forever.
+    const onBlur = () => {
+      isComposingRef.current = false;
+    };
+    window.addEventListener('compositionstart', onStart, true);
+    window.addEventListener('compositionend', onEnd, true);
+    window.addEventListener('blur', onBlur, true);
+    return () => {
+      window.removeEventListener('compositionstart', onStart, true);
+      window.removeEventListener('compositionend', onEnd, true);
+      window.removeEventListener('blur', onBlur, true);
+    };
+  }, []);
+
   const chatMessagesRef = useRef<ChatMessage[]>(chatMessages);
   // Keep the ref current every render so abort callbacks read latest messages.
   chatMessagesRef.current = chatMessages;
@@ -1314,7 +1352,9 @@ export function useChatComposerState({
       }
 
       if (event.key === 'Enter') {
-        if (event.nativeEvent.isComposing) {
+        const endedJustNow =
+          performance.now() - lastCompositionEndAtRef.current < SAFARI_IME_RACE_WINDOW_MS;
+        if (event.nativeEvent.isComposing || isComposingRef.current || endedJustNow) {
           return;
         }
 
