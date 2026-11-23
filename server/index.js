@@ -154,19 +154,28 @@ const wss = createWebSocketServer(server, {
 app.locals.wss = wss;
 
 app.use(cors({ exposedHeaders: ['X-Refreshed-Token'] }));
-app.use(express.json({
-    limit: '50mb',
-    verify: (req, _res, buf) => { req.rawBody = buf; },
-    type: (req) => {
-        // Skip multipart/form-data requests (for file uploads like images)
-        const contentType = req.headers['content-type'] || '';
-        if (contentType.includes('multipart/form-data')) {
-            return false;
-        }
-        return contentType.includes('json');
-    }
-}));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+function createBodyParsers(limit) {
+    return [
+        express.json({
+            limit,
+            type: (req) => {
+                // Skip multipart/form-data requests (for file uploads like images)
+                const contentType = req.headers['content-type'] || '';
+                if (contentType.includes('multipart/form-data')) {
+                    return false;
+                }
+                return contentType.includes('json');
+            }
+        }),
+        express.urlencoded({ limit, extended: true }),
+    ];
+}
+
+// Bodies are parsed only after a route's auth check, so an unauthenticated
+// client cannot make the server buffer and parse a 50 MB payload. Routes that
+// check credentials themselves get a small cap instead.
+const parseAuthenticatedBody = createBodyParsers('50mb');
+const parsePublicBody = createBodyParsers('1mb');
 
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {
@@ -178,57 +187,57 @@ app.get('/health', (req, res) => {
 });
 
 // Loopback-only sudo askpass bridge (guarded by per-run token, not JWT)
-app.use('/internal/askpass', internalAskpassRoutes);
+app.use('/internal/askpass', parsePublicBody, internalAskpassRoutes);
 
 // Optional API key validation (if configured)
 app.use('/api', validateApiKey);
 
 // Authentication routes (public)
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', parsePublicBody, authRoutes);
 
 // Projects API Routes (protected)
-app.use('/api/projects', authenticateToken, projectModuleRoutes);
+app.use('/api/projects', authenticateToken, parseAuthenticatedBody, projectModuleRoutes);
 
 // Git API Routes (protected)
-app.use('/api/git', authenticateToken, gitRoutes);
+app.use('/api/git', authenticateToken, parseAuthenticatedBody, gitRoutes);
 
 // Cursor API Routes (protected)
-app.use('/api/cursor', authenticateToken, cursorRoutes);
+app.use('/api/cursor', authenticateToken, parseAuthenticatedBody, cursorRoutes);
 
 // TaskMaster API Routes (protected)
-app.use('/api/taskmaster', authenticateToken, taskmasterRoutes);
+app.use('/api/taskmaster', authenticateToken, parseAuthenticatedBody, taskmasterRoutes);
 
 // MCP utilities
-app.use('/api/mcp-utils', authenticateToken, mcpUtilsRoutes);
+app.use('/api/mcp-utils', authenticateToken, parseAuthenticatedBody, mcpUtilsRoutes);
 
 // Commands API Routes (protected)
-app.use('/api/commands', authenticateToken, commandsRoutes);
+app.use('/api/commands', authenticateToken, parseAuthenticatedBody, commandsRoutes);
 
 // Settings API Routes (protected)
-app.use('/api/settings', authenticateToken, settingsRoutes);
+app.use('/api/settings', authenticateToken, parseAuthenticatedBody, settingsRoutes);
 
 // User API Routes (protected)
-app.use('/api/user', authenticateToken, userRoutes);
+app.use('/api/user', authenticateToken, parseAuthenticatedBody, userRoutes);
 
 // Gemini API Routes (protected)
-app.use('/api/gemini', authenticateToken, geminiRoutes);
+app.use('/api/gemini', authenticateToken, parseAuthenticatedBody, geminiRoutes);
 
 // Plugins API Routes (protected)
-app.use('/api/plugins', authenticateToken, pluginsRoutes);
+app.use('/api/plugins', authenticateToken, parseAuthenticatedBody, pluginsRoutes);
 
 // Unified provider MCP routes (protected)
-app.use('/api/providers', authenticateToken, providerRoutes);
+app.use('/api/providers', authenticateToken, parseAuthenticatedBody, providerRoutes);
 
 // Agent API Routes (uses API key authentication)
-app.use('/api/agent', agentRoutes);
+app.use('/api/agent', parsePublicBody, agentRoutes);
 
 // Usage API Routes (protected)
-app.use('/api/usage', authenticateToken, usageRoutes);
-app.use('/api/notes', authenticateToken, notesRoutes);
-app.use('/api/azure', authenticateToken, azureConfigRoutes);
+app.use('/api/usage', authenticateToken, parseAuthenticatedBody, usageRoutes);
+app.use('/api/notes', authenticateToken, parseAuthenticatedBody, notesRoutes);
+app.use('/api/azure', authenticateToken, parseAuthenticatedBody, azureConfigRoutes);
 
 // Voice Service Proxy Routes (protected)
-app.use('/api/voice', authenticateToken, voiceRoutes);
+app.use('/api/voice', authenticateToken, parseAuthenticatedBody, voiceRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(APP_ROOT, 'public')));
@@ -254,7 +263,7 @@ app.use(express.static(path.join(APP_ROOT, 'dist'), {
 // Frontend now uses window.location for WebSocket URLs
 
 // System update endpoint
-app.post('/api/system/update', authenticateToken, async (req, res) => {
+app.post('/api/system/update', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         // Get the project root directory (parent of server directory)
         const projectRoot = APP_ROOT;
@@ -419,7 +428,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/api/create-folder', authenticateToken, async (req, res) => {
+app.post('/api/create-folder', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const { path: folderPath } = req.body;
         if (!folderPath) {
@@ -615,7 +624,7 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
 });
 
 // Save file content endpoint
-app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectId/file', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const { projectId } = req.params;
         const { filePath, content } = req.body;
@@ -740,7 +749,7 @@ function validateFilename(name) {
 }
 
 // POST /api/projects/:projectId/files/create - Create new file or directory
-app.post('/api/projects/:projectId/files/create', authenticateToken, async (req, res) => {
+app.post('/api/projects/:projectId/files/create', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const { projectId } = req.params;
         const { path: parentPath, type, name } = req.body;
@@ -817,7 +826,7 @@ app.post('/api/projects/:projectId/files/create', authenticateToken, async (req,
 });
 
 // PUT /api/projects/:projectId/files/rename - Rename file or directory
-app.put('/api/projects/:projectId/files/rename', authenticateToken, async (req, res) => {
+app.put('/api/projects/:projectId/files/rename', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const { projectId } = req.params;
         const { oldPath, newName } = req.body;
@@ -894,7 +903,7 @@ app.put('/api/projects/:projectId/files/rename', authenticateToken, async (req, 
 });
 
 // DELETE /api/projects/:projectId/files - Delete file or directory
-app.delete('/api/projects/:projectId/files', authenticateToken, async (req, res) => {
+app.delete('/api/projects/:projectId/files', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const { projectId } = req.params;
         const { path: targetPath, type } = req.body;
@@ -1125,7 +1134,7 @@ app.post('/api/projects/:projectId/files/upload', authenticateToken, uploadFiles
 // Image upload endpoint. Accepts the DB-assigned `projectId` (not a folder name)
 // but the current implementation doesn't need to touch the project directory,
 // so we just leave the param rename for consistency with the rest of the API.
-app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req, res) => {
+app.post('/api/projects/:projectId/upload-images', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const multer = (await import('multer')).default;
         const path = (await import('path')).default;
@@ -1220,7 +1229,7 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, async (req
 
 // POST /api/assets/images - Global image upload (not tied to a project).
 // Accepts multipart/form-data with field "images", returns base64-encoded results.
-app.post('/api/assets/images', authenticateToken, async (req, res) => {
+app.post('/api/assets/images', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const multer = (await import('multer')).default;
         const path = (await import('path')).default;
@@ -1286,7 +1295,7 @@ app.post('/api/assets/images', authenticateToken, async (req, res) => {
 
 // POST /api/transcribe - Forward audio to Whisper ASR service and return transcription text.
 // Whisper endpoint is configured via WHISPER_URL env var (default: http://192.168.1.16:9000).
-app.post('/api/transcribe', authenticateToken, async (req, res) => {
+app.post('/api/transcribe', authenticateToken, parseAuthenticatedBody, async (req, res) => {
     try {
         const multer = (await import('multer')).default;
         const fs = (await import('fs')).promises;
@@ -1670,6 +1679,22 @@ app.use((err, req, res, next) => {
         code: err.code,
         message: err.message,
         details: err.details,
+      },
+    });
+  }
+
+  // body-parser rejects oversized or malformed bodies with a client-safe http-error.
+  if (
+    typeof err === 'object' && err !== null
+    && err.expose === true
+    && typeof err.status === 'number' && err.status >= 400 && err.status < 500
+    && typeof err.type === 'string'
+  ) {
+    return res.status(err.status).json({
+      success: false,
+      error: {
+        code: err.type === 'entity.too.large' ? 'PAYLOAD_TOO_LARGE' : 'INVALID_REQUEST_BODY',
+        message: err.type === 'entity.too.large' ? 'Request body is too large' : 'Request body could not be parsed',
       },
     });
   }

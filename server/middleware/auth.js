@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { userDb, appConfigDb } from '../modules/database/index.js';
 import { IS_PLATFORM } from '../constants/config.js';
+import { secretsMatch } from '../shared/utils.js';
 
 // Use env var if set, otherwise auto-generate a unique secret per installation
 const JWT_SECRET = process.env.JWT_SECRET || appConfigDb.getOrCreateJwtSecret();
@@ -12,8 +13,7 @@ const validateApiKey = (req, res, next) => {
     return next();
   }
   
-  const apiKey = req.headers['x-api-key'];
-  if (apiKey !== process.env.API_KEY) {
+  if (!secretsMatch(req.headers['x-api-key'], process.env.API_KEY)) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
   next();
