@@ -56,6 +56,8 @@ export type MainContentProps = {
   externalMessageUpdate: number;
   newSessionTrigger: number;
   onNewSession?: (project: Project) => void;
+  /** Persists a new session title; resolves false when the backend refuses it. */
+  onRenameSession?: (sessionId: string, summary: string) => Promise<boolean>;
 };
 
 export type MainContentHeaderProps = {
@@ -66,6 +68,7 @@ export type MainContentHeaderProps = {
   shouldShowTasksTab: boolean;
   isMobile: boolean;
   onMenuClick: () => void;
+  onRenameSession?: (sessionId: string, summary: string) => Promise<boolean>;
 };
 
 export type MainContentStateViewProps = {

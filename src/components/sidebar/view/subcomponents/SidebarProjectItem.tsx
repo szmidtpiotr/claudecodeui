@@ -44,6 +44,8 @@ type SidebarProjectItemProps = {
     sessionTitle: string,
     provider: LLMProvider,
   ) => void;
+  /** Archives the session straight away; it stays restorable from the archive. */
+  onArchiveSession: (sessionId: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
   onMoveSessionToProject: (confirmation: SessionMoveConfirmation) => void;
@@ -89,6 +91,7 @@ export default function SidebarProjectItem({
   onDeleteProject,
   onSessionSelect,
   onDeleteSession,
+  onArchiveSession,
   onLoadMoreSessions,
   onNewSession,
   onMoveSessionToProject,
@@ -181,8 +184,9 @@ export default function SidebarProjectItem({
       onDragLeave={handleSessionDragLeave}
       onDrop={handleSessionDrop}
     >
-      <div className="md:group group">
-        <div className="md:hidden">
+      {/* Sticky, so an expanded project's header stays in view while its sessions scroll. */}
+      <div className="sticky top-0 z-10 md:group group">
+        <div className="md:hidden bg-background">
           <div
             className={cn(
               'p-3 mx-3 my-1 rounded-lg bg-card border border-border/50 active:scale-[0.98] transition-all duration-150',
@@ -324,7 +328,9 @@ export default function SidebarProjectItem({
           variant="ghost"
           className={cn(
             'hidden md:flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
-            isSelected && 'bg-accent text-accent-foreground',
+            // A solid background in every state, so sessions scrolling under the
+            // sticky header do not show through.
+            isSelected ? 'bg-accent text-accent-foreground' : 'bg-background',
             isStarred &&
               !isSelected &&
               'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
@@ -469,6 +475,7 @@ export default function SidebarProjectItem({
         onProjectSelect={onProjectSelect}
         onSessionSelect={onSessionSelect}
         onDeleteSession={onDeleteSession}
+        onArchiveSession={onArchiveSession}
         onLoadMoreSessions={onLoadMoreSessions}
         onNewSession={onNewSession}
         pinnedSessionIds={pinnedSessionIds}

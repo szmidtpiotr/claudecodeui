@@ -158,6 +158,11 @@ export function useSidebarController({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
+  // The projects whose next session page is being fetched; `loadingMoreProjects`
+  // only mirrors it for the button. A ref, because the click handler has to know
+  // at once whether a load is running, and a flag set inside a state updater is
+  // not set yet when read back: React may hold the updater until the next render.
+  const projectIdsLoadingMoreSessionsRef = useRef<Set<string>>(new Set());
   const searchSeqRef = useRef(0);
   const recentConversationsSeqRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -619,21 +624,18 @@ export function useSidebarController({
       return;
     }
 
-    let shouldLoad = false;
-    setLoadingMoreProjects((previous) => {
-      if (previous.has(projectId)) {
-        return previous;
-      }
+    // A second click before the button re-renders as disabled would fetch the
+    // same page again.
+    if (projectIdsLoadingMoreSessionsRef.current.has(projectId)) {
+      return;
+    }
 
-      shouldLoad = true;
+    projectIdsLoadingMoreSessionsRef.current.add(projectId);
+    setLoadingMoreProjects((previous) => {
       const next = new Set(previous);
       next.add(projectId);
       return next;
     });
-
-    if (!shouldLoad) {
-      return;
-    }
 
     try {
       await onLoadMoreSessions(projectId);
@@ -641,6 +643,7 @@ export function useSidebarController({
       console.error('[Sidebar] Failed to load more sessions:', error);
       alert(t('messages.refreshError'));
     } finally {
+      projectIdsLoadingMoreSessionsRef.current.delete(projectId);
       setLoadingMoreProjects((previous) => {
         const next = new Set(previous);
         next.delete(projectId);
@@ -788,14 +791,9 @@ export function useSidebarController({
     [],
   );
 
-  const confirmDeleteSession = useCallback(async (hardDelete = false) => {
-    if (!sessionDeleteConfirmation) {
-      return;
-    }
-
-    const { sessionId } = sessionDeleteConfirmation;
-    setSessionDeleteConfirmation(null);
-
+  // Shared by archive and permanent delete: the server takes the same route for
+  // both, and either way the session leaves the active lists.
+  const removeSession = useCallback(async (sessionId: string, hardDelete: boolean) => {
     try {
       const response = await api.deleteSession(sessionId, hardDelete);
 
@@ -804,17 +802,37 @@ export function useSidebarController({
         await fetchArchivedSessions();
       } else {
         const errorText = await response.text();
-        console.error('[Sidebar] Failed to delete session:', {
+        console.error(`[Sidebar] Failed to ${hardDelete ? 'delete' : 'archive'} session:`, {
           status: response.status,
           error: errorText,
         });
-        alert(t('messages.deleteSessionFailed'));
+        alert(hardDelete
+          ? t('messages.deleteSessionFailed')
+          : t('messages.archiveSessionFailed', 'Failed to archive session. Please try again.'));
       }
     } catch (error) {
-      console.error('[Sidebar] Error deleting session:', error);
-      alert(t('messages.deleteSessionError'));
+      console.error(`[Sidebar] Error ${hardDelete ? 'deleting' : 'archiving'} session:`, error);
+      alert(hardDelete
+        ? t('messages.deleteSessionError')
+        : t('messages.archiveSessionError', 'Error archiving session. Please try again.'));
     }
-  }, [fetchArchivedSessions, onSessionDelete, sessionDeleteConfirmation, t]);
+  }, [fetchArchivedSessions, onSessionDelete, t]);
+
+  // Archiving is reversible from the archive list, so it skips the confirmation
+  // that guards a permanent delete.
+  const archiveSession = useCallback((sessionId: string) => {
+    void removeSession(sessionId, false);
+  }, [removeSession]);
+
+  const confirmDeleteSession = useCallback(async () => {
+    if (!sessionDeleteConfirmation) {
+      return;
+    }
+
+    const { sessionId } = sessionDeleteConfirmation;
+    setSessionDeleteConfirmation(null);
+    await removeSession(sessionId, true);
+  }, [removeSession, sessionDeleteConfirmation]);
 
   const requestProjectDelete = useCallback(
     (project: Project) => {
@@ -1083,6 +1101,7 @@ export function useSidebarController({
     saveProjectName,
     showDeleteSessionConfirmation,
     confirmDeleteSession,
+    archiveSession,
     requestProjectDelete,
     confirmDeleteProject,
     handleProjectSelect,
