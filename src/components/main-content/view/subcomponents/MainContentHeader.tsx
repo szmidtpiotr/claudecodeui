@@ -3,6 +3,7 @@ import type { MainContentHeaderProps } from '../../types/types';
 import MobileMenuButton from './MobileMenuButton';
 import MainContentTabSwitcher from './MainContentTabSwitcher';
 import MainContentTitle from './MainContentTitle';
+import MainContentConnectionStatus from './MainContentConnectionStatus';
 
 export default function MainContentHeader({
   activeTab,
@@ -46,6 +47,7 @@ export default function MainContentHeader({
             shouldShowTasksTab={shouldShowTasksTab}
             onRenameSession={onRenameSession}
           />
+          <MainContentConnectionStatus />
         </div>
 
         <div className="relative min-w-0 flex-shrink overflow-hidden sm:flex-shrink-0">

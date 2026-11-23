@@ -63,6 +63,8 @@ function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
 // quality until it fits. Claude downsamples anything larger anyway, so no
 // useful detail is lost.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Most images the composer holds at once; extra ones are refused and named. */
+const MAX_ATTACHED_IMAGES = 5;
 const MAX_IMAGE_EDGE = 2048;
 const UPLOADABLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -231,6 +233,17 @@ const restoreQueuedDraft = (sessionKey: string): QueuedDraft | null => {
   return saved ? { content: saved.content, images: [], options: saved.options } : null;
 };
 
+type SubmitOptions = {
+  /**
+   * Send the text as a chat message even when it starts with "/" (or is
+   * "help"). Set only for the re-submit of a custom command's expanded body:
+   * like the Claude Code CLI, that body is never read as a command again, so a
+   * body that opens with its own or another command's name cannot loop or
+   * run that command instead of being sent.
+   */
+  skipCommandInterception?: boolean;
+};
+
 const createFakeSubmitEvent = () => {
   return { preventDefault: () => undefined } as unknown as FormEvent<HTMLFormElement>;
 };
@@ -252,6 +265,16 @@ const getNotificationSessionSummary = (
 
   return normalizedFallback.length > 80 ? `${normalizedFallback.slice(0, 77)}...` : normalizedFallback;
 };
+
+/**
+ * Enter that CONFIRMS an IME candidate must not also submit.
+ *
+ * `event.isComposing` alone is not enough: Safari fires `compositionend` BEFORE the confirming
+ * Enter's `keydown`, so the flag is already `false` by the time the handler runs. A tight window
+ * after `compositionend` covers it: that sequence is synchronous (microseconds), while a human
+ * pressing Enter a second time takes >= 100ms and never lands inside it.
+ */
+const SAFARI_IME_RACE_WINDOW_MS = 30;
 
 export function useChatComposerState({
   selectedProject,
@@ -292,6 +315,34 @@ export function useChatComposerState({
   // Mirror chatMessages in a ref so abort callbacks always read the latest value
   // without stale closure issues (e.g. when ESC fires before the re-render that
   // adds the user message has completed).
+  // Composition is tracked on `window` in the capture phase rather than on the textarea, so a
+  // composition that starts in one field and ends after focus moves still closes cleanly.
+  const isComposingRef = useRef(false);
+  const lastCompositionEndAtRef = useRef(0);
+
+  useEffect(() => {
+    const onStart = () => {
+      isComposingRef.current = true;
+    };
+    const onEnd = () => {
+      isComposingRef.current = false;
+      lastCompositionEndAtRef.current = performance.now();
+    };
+    // `blur` does not bubble, but a capture-phase listener on `window` still sees it; otherwise
+    // a composition abandoned by clicking away would stay open forever.
+    const onBlur = () => {
+      isComposingRef.current = false;
+    };
+    window.addEventListener('compositionstart', onStart, true);
+    window.addEventListener('compositionend', onEnd, true);
+    window.addEventListener('blur', onBlur, true);
+    return () => {
+      window.removeEventListener('compositionstart', onStart, true);
+      window.removeEventListener('compositionend', onEnd, true);
+      window.removeEventListener('blur', onBlur, true);
+    };
+  }, []);
+
   const chatMessagesRef = useRef<ChatMessage[]>(chatMessages);
   // Keep the ref current every render so abort callbacks read latest messages.
   chatMessagesRef.current = chatMessages;
@@ -303,6 +354,9 @@ export function useChatComposerState({
     return '';
   });
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
+  // Read by the async image snapshot step to know how many slots are still free.
+  const attachedImagesRef = useRef<File[]>(attachedImages);
+  attachedImagesRef.current = attachedImages;
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
@@ -349,7 +403,10 @@ export function useChatComposerState({
   const inputHighlightRef = useRef<HTMLDivElement>(null);
   const isSubmittingRef = useRef(false);
   const handleSubmitRef = useRef<
-    ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
+    ((
+      event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
+      submitOptions?: SubmitOptions,
+    ) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
   const selectedProjectId = selectedProject?.projectId;
@@ -473,9 +530,10 @@ export function useChatComposerState({
     inputValueRef.current = commandContent;
 
     // Defer submit to next tick so the command text is reflected in UI before dispatching.
+    // The expanded body is the message itself: it skips slash-command interception.
     setTimeout(() => {
       if (handleSubmitRef.current) {
-        handleSubmitRef.current(createFakeSubmitEvent());
+        handleSubmitRef.current(createFakeSubmitEvent(), { skipCommandInterception: true });
       }
     }, 0);
   }, [addMessage]);
@@ -488,9 +546,17 @@ export function useChatComposerState({
 
       try {
         const effectiveInput = rawInput ?? input;
-        const commandMatch = effectiveInput.match(new RegExp(`${escapeRegExp(command.name)}\\s*(.*)`));
-        const args =
-          commandMatch && commandMatch[1] ? commandMatch[1].trim().split(/\s+/) : [];
+        // Everything typed after the command name is its argument text, line
+        // breaks included (`[\s\S]`, unlike `.`), trimmed as the Claude Code CLI
+        // does. `$ARGUMENTS` gets it verbatim; `$1`, `$2`, … get its tokens.
+        // The name must open the input and end at whitespace or the end: a pick
+        // from the slash menu passes the whole composer, where the name may
+        // appear later or inside a longer word ("see /echo2 …" has no arguments).
+        const commandMatch = effectiveInput
+          .trimStart()
+          .match(new RegExp(`^${escapeRegExp(command.name)}(?=\\s|$)([\\s\\S]*)`));
+        const rawArgs = commandMatch ? commandMatch[1].trim() : '';
+        const args = rawArgs ? rawArgs.split(/\s+/) : [];
 
         // The `/api/commands/execute` context sends `projectId` now instead of
         // a folder-derived project name; the path is still included verbatim.
@@ -518,6 +584,7 @@ export function useChatComposerState({
             commandName: command.name,
             commandPath: command.path,
             args,
+            rawArgs,
             context,
           }),
         });
@@ -674,8 +741,23 @@ export function useChatComposerState({
       }),
     ).then((snapshots) => {
       const stable = snapshots.filter((f): f is File => f !== null);
-      if (stable.length > 0) {
-        setAttachedImages((previous) => [...previous, ...stable].slice(0, 5));
+      if (stable.length === 0) return;
+      // Name every image past the limit instead of silently dropping it (it
+      // never gets a thumbnail, so the composer lists it as an orphan error).
+      const freeSlots = Math.max(0, MAX_ATTACHED_IMAGES - attachedImagesRef.current.length);
+      const accepted = stable.slice(0, freeSlots);
+      const refused = stable.slice(freeSlots);
+      if (refused.length > 0) {
+        setImageErrors((previous) => {
+          const next = new Map(previous);
+          refused.forEach((file) => {
+            next.set(file.name || 'image', `Not attached — over the ${MAX_ATTACHED_IMAGES}-image limit`);
+          });
+          return next;
+        });
+      }
+      if (accepted.length > 0) {
+        setAttachedImages((previous) => [...previous, ...accepted].slice(0, MAX_ATTACHED_IMAGES));
       }
     });
   }, []);
@@ -684,15 +766,16 @@ export function useChatComposerState({
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const items = Array.from(event.clipboardData.items);
 
-      items.forEach((item) => {
-        if (!item.type.startsWith('image/')) {
-          return;
-        }
-        const file = item.getAsFile();
-        if (file) {
-          handleImageFiles([file]);
-        }
-      });
+      // One call for the whole paste: each call resets the error list and
+      // counts free slots once, so attaching images one by one would hide
+      // errors from earlier images and let a paste overfill the composer.
+      const pastedImages = items
+        .filter((item) => item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      if (pastedImages.length > 0) {
+        handleImageFiles(pastedImages);
+      }
 
       if (items.length === 0 && event.clipboardData.files.length > 0) {
         const files = Array.from(event.clipboardData.files);
@@ -720,7 +803,8 @@ export function useChatComposerState({
       'image/avif': ['.avif'],
       'image/bmp': ['.bmp'],
     },
-    maxFiles: 5,
+    // No maxFiles: dropzone refuses the whole drop past the limit, so
+    // handleImageFiles attaches what fits and names the rest.
     onDrop: handleImageFiles,
     onDropRejected: (rejections) => {
       setImageErrors((previous) => {
@@ -797,6 +881,7 @@ export function useChatComposerState({
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
+      submitOptions?: SubmitOptions,
     ) => {
       event.preventDefault();
       const currentInput = inputValueRef.current;
@@ -805,7 +890,9 @@ export function useChatComposerState({
       }
 
       // /btw <text> — inject steering message into the currently-running turn.
-      const btwMatch = currentInput.trim().match(/^\/btw\s+([\s\S]+)/);
+      const btwMatch = submitOptions?.skipCommandInterception
+        ? null
+        : currentInput.trim().match(/^\/btw\s+([\s\S]+)/);
       if (btwMatch) {
         const btwContent = btwMatch[1].trim();
         const sessionId = currentSessionId;
@@ -852,11 +939,13 @@ export function useChatComposerState({
       // Also accept exact "help" as a convenience alias for users who expect CLI-style help.
       const commandInput = currentInput.trimEnd();
       const isHelpAlias = commandInput.trim().toLowerCase() === 'help';
-      if (commandInput.startsWith('/') || isHelpAlias) {
-        const firstSpace = commandInput.indexOf(' ');
+      if (!submitOptions?.skipCommandInterception && (commandInput.startsWith('/') || isHelpAlias)) {
+        // The name ends at the first whitespace of any kind, so "/cmd" followed
+        // by a line break still runs /cmd (the Claude Code CLI splits the same way).
+        const firstWhitespace = commandInput.search(/\s/);
         const commandName = isHelpAlias
           ? '/help'
-          : firstSpace > 0 ? commandInput.slice(0, firstSpace) : commandInput;
+          : firstWhitespace > 0 ? commandInput.slice(0, firstWhitespace) : commandInput;
         const matchedCommand =
           slashCommands.find((cmd: SlashCommand) => cmd.name === commandName) ||
           (commandName === '/help'
@@ -1293,7 +1382,9 @@ export function useChatComposerState({
       }
 
       if (event.key === 'Enter') {
-        if (event.nativeEvent.isComposing) {
+        const endedJustNow =
+          performance.now() - lastCompositionEndAtRef.current < SAFARI_IME_RACE_WINDOW_MS;
+        if (event.nativeEvent.isComposing || isComposingRef.current || endedJustNow) {
           return;
         }
 

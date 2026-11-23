@@ -2,11 +2,23 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuth } from '../components/auth/context/AuthContext';
 import { IS_PLATFORM } from '../constants/config';
 
+/**
+ * Where the chat socket stands. `connecting` covers a handshake started on
+ * purpose (first load, or a refreshed token); `disconnected` a socket that
+ * closed on its own (it dropped, or an attempt failed) until a reconnect opens.
+ */
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
 type WebSocketContextType = {
   ws: WebSocket | null;
   sendMessage: (message: any) => void;
   latestMessage: any | null;
   isConnected: boolean;
+  /**
+   * Lets the UI tell a lost connection apart from the first handshake, so the
+   * header can show "Reconnecting" without flashing on every page load.
+   */
+  connectionStatus: ConnectionStatus;
   onPageVisible: (callback: () => void) => () => void;
 };
 
@@ -50,7 +62,10 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const unmountedRef = useRef(false); // Track if component is unmounted
   const hasConnectedRef = useRef(false); // Track if we've ever connected (to detect reconnects)
   const [latestMessage, setLatestMessage] = useState<any>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  // Three values rather than a boolean: a first handshake still in flight must
+  // not read as a lost connection, or every page load would flash the indicator.
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const isConnected = connectionStatus === 'connected';
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pageVisibleCallbacksRef = useRef<Set<() => void>>(new Set());
   // Messages handed to sendMessage while the socket was not OPEN, waiting for
@@ -114,6 +129,9 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       if (wsRef.current) {
         wsRef.current.close();
       }
+      // The next socket (refreshed token) starts from a fresh handshake; a
+      // drop seen before must not show as "Reconnecting".
+      setConnectionStatus('connecting');
     };
   }, [token]); // everytime token changes, we reconnect
 
@@ -170,7 +188,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
       // every send() succeeds locally and the message never arrives.
       const stale = wsRef.current;
       wsRef.current = null;
-      setIsConnected(false);
+      setConnectionStatus('disconnected');
       try {
         stale?.close();
       } catch {
@@ -218,7 +236,7 @@ const useWebSocketProviderState = (): WebSocketContextType => {
           }
           return;
         }
-        setIsConnected(true);
+        setConnectionStatus('connected');
         wsRef.current = websocket;
         // Anything typed while the socket was down goes out first, in order.
         flushOutboundQueue(websocket);
@@ -248,7 +266,9 @@ const useWebSocketProviderState = (): WebSocketContextType => {
 
       websocket.onclose = () => {
         if (!isCurrent()) return;
-        setIsConnected(false);
+        // Also reached when the very first attempt fails, which is a lost
+        // connection too.
+        setConnectionStatus('disconnected');
         wsRef.current = null;
 
         // Attempt to reconnect after 3 seconds
@@ -299,8 +319,9 @@ const useWebSocketProviderState = (): WebSocketContextType => {
     sendMessage,
     latestMessage,
     isConnected,
+    connectionStatus,
     onPageVisible,
-  }), [sendMessage, latestMessage, isConnected, onPageVisible]);
+  }), [sendMessage, latestMessage, isConnected, connectionStatus, onPageVisible]);
 
   return value;
 };
