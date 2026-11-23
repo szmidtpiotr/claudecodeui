@@ -18,6 +18,8 @@ import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
 import ImageLightbox from './ImageLightbox';
 import { buildFileUrl, parseUserContentForImages } from '../../utils/imageUrls';
+import { parseDerivedReportMessage } from '../../../../../shared/derivedSessionReport';
+import DerivedReportMessage from './DerivedReportMessage';
 
 type DiffLine = {
   type: string;
@@ -42,6 +44,8 @@ type MessageComponentProps = {
   selectedProject?: Project | null;
   provider: Provider | string;
   onForkFromMessage?: (message: ChatMessage) => void;
+  /** Opens another session (the derived session a report came from). */
+  onOpenSession?: (sessionId: string) => void;
 };
 
 type InteractiveOption = {
@@ -53,7 +57,7 @@ type InteractiveOption = {
 type PermissionGrantState = 'idle' | 'granted' | 'error';
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, collapseErrorResults = false, selectedProject, provider, onForkFromMessage }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, collapseErrorResults = false, selectedProject, provider, onForkFromMessage, onOpenSession }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -126,9 +130,28 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
   }, [message.timestamp]);
   const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
   const [compactExpanded, setCompactExpanded] = useState(false);
+  // A derived session's report arrives as a user-role message; it is shown as
+  // a message from that session, with a link to it.
+  const derivedReport = useMemo(
+    () => (message.type === 'user' ? parseDerivedReportMessage(String(message.content || '')) : null),
+    [message.type, message.content],
+  );
 
   if (shouldHideThinkingMessage) {
     return null;
+  }
+
+  if (derivedReport) {
+    return (
+      <div ref={messageRef} data-message-timestamp={message.timestamp || undefined} className="chat-message derived-report px-3 sm:px-0">
+        <DerivedReportMessage
+          report={derivedReport}
+          formattedTime={formattedTime}
+          projectId={selectedProject?.projectId}
+          onOpenSession={onOpenSession}
+        />
+      </div>
+    );
   }
 
   if (message.isCompactSummary && !showCompactSummaries) {

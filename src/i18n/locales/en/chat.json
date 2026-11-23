@@ -318,5 +318,12 @@
     "title": "Fork: open a derived session that continues from this response",
     "ariaLabel": "Fork conversation from this response",
     "failed": "Could not fork the session: {{reason}}"
+  },
+  "derivedReport": {
+    "header": "Message from derived session “{{title}}”",
+    "headerError": "Derived session “{{title}}” ended with an error",
+    "open": "Open session",
+    "expand": "Show the report",
+    "collapse": "Hide the report"
   }
 }

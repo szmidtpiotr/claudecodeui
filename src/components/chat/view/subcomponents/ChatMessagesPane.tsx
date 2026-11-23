@@ -67,6 +67,7 @@ interface ChatMessagesPaneProps {
   collapseErrorResults?: boolean;
   selectedProject: Project;
   onForkFromMessage?: (message: ChatMessage) => void;
+  onOpenSession?: (sessionId: string) => void;
   /** True while ChatComposer's floating activity/stop tab is rendered above the input. */
   hasActivityIndicator?: boolean;
 }
@@ -123,6 +124,7 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
   collapseErrorResults = false,
   selectedProject,
   onForkFromMessage,
+  onOpenSession,
   hasActivityIndicator = false,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
@@ -286,6 +288,7 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
                 selectedProject={selectedProject}
                 provider={provider}
                 onForkFromMessage={onForkFromMessage}
+                onOpenSession={onOpenSession}
               />
             );
           })}

@@ -528,6 +528,11 @@ function ChatInterface({
     }
   }, [selectedProject, isForking, currentSessionId, selectedSession?.id, selectedSession?.__provider, provider, openNewSessionWithExchange, setInput, onNavigateToSession, t]);
 
+  // Opens a derived session from its report row in this chat.
+  const handleOpenSession = useCallback((sessionId: string) => {
+    onNavigateToSession?.(sessionId);
+  }, [onNavigateToSession]);
+
   const handleRemoveImage = useCallback((index: number) => {
     setAttachedImages((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
   }, [setAttachedImages]);
@@ -656,6 +661,7 @@ function ChatInterface({
           collapseErrorResults={collapseErrorResults}
           selectedProject={selectedProject}
           onForkFromMessage={handleForkFromMessage}
+          onOpenSession={handleOpenSession}
           hasActivityIndicator={isLoading || Boolean(claudeStatus) || pendingPermissionRequests.length > 0}
         />
 
