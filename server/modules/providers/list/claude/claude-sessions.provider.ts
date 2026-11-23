@@ -215,6 +215,30 @@ const INTERNAL_CONTENT_PREFIXES = [
   '[Request interrupted',
 ] as const;
 
+/**
+ * Claude Code 2.1.282+ writes pasted text into the transcript already wrapped as
+ * `<pasted_content id="ID">\nBODY\n</pasted_content id="ID">`. The closing tag
+ * carries the id too, so a generic closing-tag stripper misses it.
+ */
+const PASTED_CONTENT =
+  /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content(?: id="\1")?>/g;
+
+/**
+ * Replaces each well-formed `<pasted_content>` wrapper with its body so a user
+ * message shows the text that was pasted. Unclosed or mismatched-id wrappers are
+ * left untouched, and a message with no wrapper is returned unchanged.
+ */
+function unwrapPastedContent(text: string): string {
+  let unwrapped = false;
+  const result = text.replace(PASTED_CONTENT, (_match, _id: string, body: string) => {
+    unwrapped = true;
+    return body;
+  });
+
+  if (!unwrapped) return text;
+  return result.replace(/^[\r\n]+|[\r\n]+$/g, '');
+}
+
 function isInternalContent(content: string): boolean {
   return INTERNAL_CONTENT_PREFIXES.some((prefix) => content.startsWith(prefix));
 }
@@ -454,6 +478,13 @@ export class ClaudeSessionsProvider implements IProviderSessions {
             role: 'user',
             content: text,
           }));
+        }
+      }
+
+      // Show the text that was pasted, not the wrapper tags Claude Code stores it in.
+      for (const message of messages) {
+        if (message.role === 'user' && message.kind === 'text' && typeof message.content === 'string') {
+          message.content = unwrapPastedContent(message.content);
         }
       }
       return messages;
