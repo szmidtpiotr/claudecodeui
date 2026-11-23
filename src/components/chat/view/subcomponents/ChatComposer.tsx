@@ -17,6 +17,7 @@ import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
+import { MCP_ELICITATION_TOOL_NAME } from '../../tools/configs/permissionPanelRegistry';
 import QueuedMessageCard from './QueuedMessageCard';
 import { EffortSelector, type EffortLevel } from './EffortSelector';
 import ModelSelector from './ModelSelector';
@@ -203,9 +204,10 @@ const ChatComposer = memo(function ChatComposer({
     bottom: textareaRect ? window.innerHeight - textareaRect.top + 8 : 90,
   };
 
-  // Detect if the AskUserQuestion interactive panel is active
+  // Detect if an interactive panel that takes the person's answer is active:
+  // a question from the agent, or an MCP server's request for input.
   const hasQuestionPanel = pendingPermissionRequests.some(
-    (r) => r.toolName === 'AskUserQuestion'
+    (r) => r.toolName === 'AskUserQuestion' || r.toolName === MCP_ELICITATION_TOOL_NAME
   );
 
   // Hide the thinking/status bar while any permission request is pending

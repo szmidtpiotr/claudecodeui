@@ -9,6 +9,13 @@ export interface PermissionPanelProps {
   ) => void;
 }
 
+/**
+ * Tool name the backend gives an MCP server's request for input ("elicitation") when it
+ * forwards it as a permission request. The permission banner draws it with the elicitation
+ * panel, and the composer steps aside while one is open, as it does for a question.
+ */
+export const MCP_ELICITATION_TOOL_NAME = 'McpElicitation';
+
 const registry: Record<string, ComponentType<PermissionPanelProps>> = {};
 
 export function registerPermissionPanel(

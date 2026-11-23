@@ -955,7 +955,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
         cwd: finalProjectPath,
         sessionId: sessionId || null,
         model: model,
-        permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
+        permissionMode: 'bypassPermissions', // Bypass all permissions for API calls
+        unattended: true // No person is there to answer an MCP server's request for input
       }, writer);
 
     } else if (provider === 'cursor') {
