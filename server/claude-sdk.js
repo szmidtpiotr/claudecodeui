@@ -86,6 +86,78 @@ function createPushChannel() {
   return channel;
 }
 
+// How long a turn that ended with steered messages still unread keeps the CLI's
+// input open for the follow-up turn the CLI runs them in. That turn starts within
+// milliseconds of the `result`; the grace only bounds a CLI that dropped them, so
+// the run is not left "processing" forever.
+const STEER_FOLLOW_UP_GRACE_MS = 30 * 1000;
+
+/**
+ * Bookkeeping for messages steered into one running Claude query.
+ *
+ * A steered message is written to the CLI's still-open stdin with priority
+ * `next`: the CLI reads it at the next tool-call boundary of the running turn,
+ * or — if the turn ends first — runs it as a follow-up turn on the same process.
+ * With `--replay-user-messages` the CLI echoes each message at the moment it
+ * reads it; that echo (same uuid) is what marks a steered message delivered.
+ *
+ * @returns {{
+ *   add: (messageId: string, content: string) => void,
+ *   isSteered: (messageId: string) => boolean,
+ *   markDelivered: (messageId: string) => boolean,
+ *   pendingCount: () => number,
+ *   listPending: () => Array<{ messageId: string, content: string }>,
+ *   takePending: () => Array<{ messageId: string, content: string }>,
+ * }}
+ */
+function createSteerTracker() {
+  // Every id steered into this run; an echo of any other uuid (the turn's own
+  // prompt, for one) is not ours to show.
+  const steeredIds = new Set();
+  // Steered messages the CLI has not read yet, in send order.
+  const pending = new Map();
+
+  return {
+    add(messageId, content) {
+      steeredIds.add(messageId);
+      pending.set(messageId, content);
+    },
+    isSteered(messageId) {
+      return steeredIds.has(messageId);
+    },
+    markDelivered(messageId) {
+      return pending.delete(messageId);
+    },
+    pendingCount() {
+      return pending.size;
+    },
+    listPending() {
+      return [...pending].map(([messageId, content]) => ({ messageId, content }));
+    },
+    takePending() {
+      const list = [...pending].map(([messageId, content]) => ({ messageId, content }));
+      pending.clear();
+      return list;
+    },
+  };
+}
+
+/**
+ * The user message pushed into a running turn's stdin for a steered message.
+ * Priority `next` lets the turn carry on and read it at its next tool call
+ * (`now` would cut the in-flight step short); the uuid is what the CLI's
+ * replay echo carries back, and what history stores it under (`source_uuid`).
+ */
+function buildSteerUserMessage(messageId, content) {
+  return {
+    type: 'user',
+    message: { role: 'user', content },
+    parent_tool_use_id: null,
+    priority: 'next',
+    uuid: messageId,
+  };
+}
+
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
@@ -364,7 +436,7 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Array<string>} tempImagePaths - Temp image file paths for cleanup
  * @param {string} tempDir - Temp directory for cleanup
  */
-function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null, pushChannel = null) {
+function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null, pushChannel = null, steer = null) {
   activeSessions.set(sessionId, {
     instance: queryInstance,
     startTime: Date.now(),
@@ -373,6 +445,9 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
     tempDir,
     writer,
     pushChannel,
+    // { into(messageId, content), tracker } — delivers a message into the
+    // running turn; see steerClaudeSDKSession.
+    steer,
   });
 }
 
@@ -620,6 +695,23 @@ async function queryClaudeSDK(command, options = {}, ws) {
   let tempDir = null;
   let sudoToken = null;
 
+  // Messages steered into this run (see steerClaudeSDKSession).
+  const steerTracker = createSteerTracker();
+  let steerFollowUpTimer = null;
+  const clearSteerFollowUpTimer = () => {
+    if (steerFollowUpTimer) {
+      clearTimeout(steerFollowUpTimer);
+      steerFollowUpTimer = null;
+    }
+  };
+  // Tells every tab watching the run that steered messages will not be read,
+  // so the tab that sent them can put the text back into its composer.
+  const reportDroppedSteers = (reason) => {
+    for (const { messageId, content } of steerTracker.takePending()) {
+      ws.send({ type: 'steer-status', state: 'dropped', reason, sessionId: capturedSessionId || sessionId || null, messageId, content });
+    }
+  };
+
   const emitNotification = (event) => {
     notifyUserIfEnabled({
       userId: ws?.userId || null,
@@ -810,8 +902,15 @@ async function queryClaudeSDK(command, options = {}, ws) {
       };
     }
 
-    // Create a push channel so this turn runs in streaming-input mode,
-    // which allows /btw mid-run injection via priority:'now' messages.
+    // Makes the CLI echo each message it reads from stdin, at the moment it
+    // reads it. For a steered message that echo is the only word on when — and
+    // whether — Claude actually took it in; the loop below drops every other
+    // echo, so nothing else changes on screen.
+    sdkOptions.extraArgs = { ...(sdkOptions.extraArgs || {}), 'replay-user-messages': null };
+
+    // Create a push channel so this turn runs in streaming-input mode: the
+    // CLI's stdin stays open while the turn runs, so a message the user sends
+    // meanwhile can be steered into it (see steerClaudeSDKSession).
     const pushChannel = createPushChannel();
     pushChannel.push({
       type: 'user',
@@ -820,9 +919,26 @@ async function queryClaudeSDK(command, options = {}, ws) {
       shouldQuery: true,
     });
 
+    const steer = {
+      tracker: steerTracker,
+      reportDropped: reportDroppedSteers,
+      // Writes one more user message into the running turn. Refused once the
+      // CLI's input is closed — the turn is over and the message can only
+      // start a new one, which is the client's to send.
+      into(messageId, content) {
+        if (pushChannel.isClosed) {
+          return { ok: false, reason: 'turn_ended' };
+        }
+        steerTracker.add(messageId, content);
+        pushChannel.push(buildSteerUserMessage(messageId, content));
+        ws.send({ type: 'steer-status', state: 'pending', sessionId: capturedSessionId || sessionId || null, messageId, content });
+        return { ok: true };
+      },
+    };
+
     let queryInstance;
     try {
-      queryInstance = query({
+      queryInstance = queryImpl({
         prompt: pushChannel.iterable,
         options: sdkOptions
       });
@@ -831,15 +947,15 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // Keep notification behavior operational via runtime events even if hook registration fails.
       console.warn('Failed to initialize Claude query with hooks, retrying without hooks:', hookError?.message || hookError);
       delete sdkOptions.hooks;
-      queryInstance = query({
+      queryInstance = queryImpl({
         prompt: pushChannel.iterable,
         options: sdkOptions
       });
     }
 
-    // Track the query instance and push channel for abort + /btw injection
+    // Track the query instance and push channel for abort + steering
     if (capturedSessionId) {
-      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel);
+      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer);
     }
 
     // Process streaming messages
@@ -861,16 +977,37 @@ async function queryClaudeSDK(command, options = {}, ws) {
         mainThreadModel = message.message.model;
       }
 
-      // Close the push channel when the turn completes so the iterator ends cleanly
+      // Close the push channel when the turn completes so the iterator ends
+      // cleanly — unless steered messages are still unread. The CLI then runs
+      // them as a follow-up turn on this same process, which needs stdin open;
+      // that turn's own `result` closes it.
       if (message.type === 'result') {
-        pushChannel.close();
+        const abortPending = capturedSessionId ? abortedSessionIds.has(capturedSessionId) : false;
+        if (steerTracker.pendingCount() > 0 && !abortPending) {
+          clearSteerFollowUpTimer();
+          steerFollowUpTimer = setTimeout(() => {
+            steerFollowUpTimer = null;
+            console.warn(`[Claude SDK] Steered message(s) never started a follow-up turn for session ${capturedSessionId}; ending the run.`);
+            reportDroppedSteers('not_read');
+            pushChannel.close();
+          }, STEER_FOLLOW_UP_GRACE_MS);
+          steerFollowUpTimer.unref?.();
+        } else {
+          pushChannel.close();
+        }
+      }
+
+      // The follow-up turn for unread steered messages has started; its own
+      // `result` ends the run.
+      if (message.type === 'system' && message.subtype === 'init') {
+        clearSteerFollowUpTimer();
       }
 
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel);
+        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -884,6 +1021,24 @@ async function queryClaudeSDK(command, options = {}, ws) {
         }
       } else {
         // session_id already captured
+      }
+
+      // The CLI's echo of a message it read from stdin (see `extraArgs`). Only
+      // steered messages are shown — the turn's own prompt is on screen already.
+      if (message.type === 'user' && message.isReplay === true) {
+        const echoedId = typeof message.uuid === 'string' ? message.uuid : '';
+        if (steerTracker.isSteered(echoedId)) {
+          steerTracker.markDelivered(echoedId);
+          const echoSessionId = capturedSessionId || sessionId || null;
+          // Shown now, where Claude read it, on every tab watching the run.
+          // The normalized id is the uuid it was sent with, which is also the
+          // id history gives it, so live and reloaded views reconcile.
+          for (const steered of sessionsService.normalizeMessage('claude', message, echoSessionId)) {
+            ws.send(steered);
+          }
+          ws.send({ type: 'steer-status', state: 'delivered', sessionId: echoSessionId, messageId: echoedId });
+        }
+        continue;
       }
 
       // Transform and normalize message via adapter
@@ -939,6 +1094,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
+    // Anything steered that the CLI never read is not going to be now.
+    reportDroppedSteers(capturedSessionId && abortedSessionIds.has(capturedSessionId) ? 'aborted' : 'turn_ended');
+
     // Clean up temporary image files
     await cleanupTempFiles(tempImagePaths, tempDir);
 
@@ -967,6 +1125,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       removeSession(capturedSessionId);
     }
 
+    reportDroppedSteers(capturedSessionId && abortedSessionIds.has(capturedSessionId) ? 'aborted' : 'error');
+
     // Clean up temporary image files on error
     await cleanupTempFiles(tempImagePaths, tempDir);
 
@@ -991,6 +1151,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       error
     });
   } finally {
+    clearSteerFollowUpTimer();
     unregisterSudoRun(sudoToken);
   }
 }
@@ -1035,6 +1196,10 @@ async function abortClaudeSDKSession(sessionId) {
         console.warn(`close() failed for ${sessionId}:`, err?.message || err);
       }
     }
+
+    // A stop leaves steered messages unread; the tab that sent them puts the
+    // text back into its composer.
+    session.steer?.reportDropped('aborted');
 
     // Close push channel so the streaming-input iterator terminates cleanly
     session.pushChannel?.close();
@@ -1111,25 +1276,54 @@ function reconnectSessionWriter(sessionId, newRawWs) {
 }
 
 /**
- * Injects a /btw steering message into an actively-running turn.
- * Only works while a turn is in progress (push channel open).
+ * Delivers a user message into a session's running turn ("steering"): Claude
+ * reads it at its next tool-call boundary and carries on with it in mind,
+ * nothing stopped. A turn that ends before another tool call reads it in a
+ * follow-up turn on the same process, and the run is not reported complete
+ * until it has.
+ *
+ * Refused when the session has no live run or its CLI input is already closed
+ * (the turn is over): the message could only start a new turn then, which is
+ * the caller's to send.
+ * @param {string} sessionId - Claude session id of the running query
+ * @param {string} messageId - Client-chosen UUID the message is tracked by
+ * @param {string} content - Message text
+ * @returns {{ ok: boolean, reason?: string }}
+ */
+function steerClaudeSDKSession(sessionId, messageId, content) {
+  const session = getSession(sessionId);
+  if (!session || session.status !== 'active' || !session.steer) {
+    return { ok: false, reason: 'no_active_turn' };
+  }
+  return session.steer.into(messageId, content);
+}
+
+/**
+ * Steered messages a session's running turn has not read yet, so a tab that
+ * opens (or reloads) mid-run can show them as pending.
  * @param {string} sessionId
- * @param {string} content - The steering text from the user
+ * @returns {Array<{ messageId: string, content: string }>}
+ */
+function listPendingSteers(sessionId) {
+  return getSession(sessionId)?.steer?.tracker.listPending() ?? [];
+}
+
+/**
+ * Kept for the `/btw` wire message older clients still send: it is now plain
+ * steering under a server-chosen id.
+ * @param {string} sessionId
+ * @param {string} content
  * @returns {{ ok: boolean, reason?: string }}
  */
 function injectBtwMessage(sessionId, content) {
-  const session = getSession(sessionId);
-  if (!session?.pushChannel || session.pushChannel.isClosed) {
-    return { ok: false, reason: 'no_active_turn' };
-  }
-  session.pushChannel.push({
-    type: 'user',
-    message: { role: 'user', content },
-    parent_tool_use_id: null,
-    priority: 'now',
-    shouldQuery: true,
-  });
-  return { ok: true };
+  return steerClaudeSDKSession(sessionId, createRequestId(), content);
+}
+
+// The SDK entry point; swapped only by tests, which drive the run loop with a
+// scripted CLI instead of a real process.
+let queryImpl = query;
+function setClaudeQueryImplForTests(impl) {
+  queryImpl = impl || query;
 }
 
 // Export public API
@@ -1138,6 +1332,11 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   injectBtwMessage,
+  steerClaudeSDKSession,
+  listPendingSteers,
+  createSteerTracker,
+  createPushChannel,
+  setClaudeQueryImplForTests,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,
