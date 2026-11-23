@@ -34,7 +34,11 @@
     "loadingSessions": "Loading sessions...",
     "unnamed": "Unnamed",
     "loading": "Loading...",
-    "showMore": "Show more sessions"
+    "showMore": "Show more sessions",
+    "expandForks": "Show derived sessions",
+    "collapseForks": "Hide derived sessions",
+    "expandForksFor": "Show derived sessions of {{session}}",
+    "collapseForksFor": "Hide derived sessions of {{session}}"
   },
   "tooltips": {
     "viewEnvironments": "View Environments",
