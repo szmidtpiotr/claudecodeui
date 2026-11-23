@@ -20,10 +20,15 @@ import {
 } from '@/modules/providers/list/claude/claude-fork-utils.js';
 import {
   createFreshDerivedSession,
+  getParentSessionId,
   isDerivedTurnRunning,
   listDerivedSessions,
   sendToDerivedSession,
+  sendToParentSession,
+  type ReportDelivery,
 } from '@/modules/providers/services/derived-sessions.service.js';
+
+import { MAX_SESSION_MESSAGE_LENGTH } from '../../../../../shared/derivedSessionReport.js';
 
 export const DERIVED_SESSIONS_SERVER_NAME = 'derived-sessions';
 export const DERIVED_SESSIONS_ALLOWED_TOOLS = [
@@ -32,6 +37,16 @@ export const DERIVED_SESSIONS_ALLOWED_TOOLS = [
   `mcp__${DERIVED_SESSIONS_SERVER_NAME}__list_derived_sessions`,
   `mcp__${DERIVED_SESSIONS_SERVER_NAME}__send_to_derived_session`,
 ];
+/** Only for runs in a session that has a parent. */
+export const SEND_TO_PARENT_TOOL = `mcp__${DERIVED_SESSIONS_SERVER_NAME}__send_to_parent_session`;
+
+/** The derived-sessions tools a run may use without asking; send_to_parent_session only with a parent. */
+export function derivedSessionsAllowedTools(hasParent: boolean): string[] {
+  return hasParent ? [...DERIVED_SESSIONS_ALLOWED_TOOLS, SEND_TO_PARENT_TOOL] : [...DERIVED_SESSIONS_ALLOWED_TOOLS];
+}
+
+/** How long send_to_parent_session waits for the delivery before answering "queued". */
+const SEND_TO_PARENT_WAIT_MS = 20 * 1000;
 
 const MAX_STATUS_TEXT_LENGTH = 4000;
 
@@ -43,6 +58,11 @@ export type DerivedSessionsContext = {
   /** Options of the parent run that a derived run inherits (model, permission mode, tools, effort). */
   parentOptions: Record<string, unknown>;
   userId: string | number | null;
+  /**
+   * The session's parent, looked up when the run starts. send_to_parent_session
+   * is registered only when it is set. Undefined = look it up now.
+   */
+  parentSessionId?: string | null;
   /** Test seam. */
   getSessionMessages?: (sessionId: string, options: { dir?: string }) => Promise<TranscriptMessageLike[]>;
 };
@@ -165,21 +185,73 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
     }
   }
 
+  async function sendToParent(args: { message: string }): Promise<ToolResult> {
+    const currentSessionId = context.getCurrentSessionId();
+    if (!currentSessionId) {
+      return text('The current session has no id yet.', true);
+    }
+    let delivery: Promise<ReportDelivery>;
+    try {
+      delivery = sendToParentSession({ childSessionId: currentSessionId, message: args.message, userId: context.userId });
+    } catch (error) {
+      return text(`Could not send to the parent session: ${describeError(error)}`, true);
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const outcome = await Promise.race([
+      delivery,
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SEND_TO_PARENT_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
+    const parentSessionId = getParentSessionId(currentSessionId);
+    if (!outcome) {
+      return text({ parentSessionId, delivery: 'queued', note: 'The message is queued and will reach the parent session shortly.' });
+    }
+    if (outcome.mode === 'dropped') {
+      const why = outcome.reason === 'relay_limit'
+        ? 'the parent session received too many messages from derived sessions recently; try again later'
+        : outcome.reason === 'parent_missing' ? 'the parent session no longer exists' : (outcome.detail ?? 'unknown error');
+      return text(`The message was not delivered: ${why}.`, true);
+    }
+    return text({
+      parentSessionId,
+      delivery: outcome.mode === 'steered' ? 'into_running_turn' : 'new_turn',
+      note: 'Delivered to the parent session. Do not wait for an answer; tell the user it was sent.',
+    });
+  }
+
   return {
     createDerivedSession,
     getDerivedSessionStatus,
     listDerivedSessions: listDerived,
     sendToDerivedSession: sendToDerived,
+    sendToParentSession: sendToParent,
   };
 }
 
-export function createDerivedSessionsMcpServer(context: DerivedSessionsContext) {
+/** The tool definitions of a run; send_to_parent_session only when the session has a parent. */
+export function buildDerivedSessionsTools(context: DerivedSessionsContext) {
   const handlers = createDerivedSessionHandlers(context);
+  const parentSessionId = context.parentSessionId === undefined
+    ? getParentSessionId(context.getCurrentSessionId())
+    : context.parentSessionId;
 
-  return createSdkMcpServer({
-    name: DERIVED_SESSIONS_SERVER_NAME,
-    version: '2.0.0',
-    tools: [
+  const parentTools = parentSessionId
+    ? [
+      tool(
+        'send_to_parent_session',
+        'Send a message to the parent session ("sesja nadrzędna", the main session this derived session was started from). '
+          + 'Use it when the user asks you to tell, send, pass on or report something to the parent or main session. '
+          + 'The message arrives there as a message from this session and the parent agent reacts to it. '
+          + 'Write the message so it makes sense without this conversation.',
+        {
+          message: z.string().min(1).max(MAX_SESSION_MESSAGE_LENGTH).describe('What the parent session should receive.'),
+        },
+        async (args) => handlers.sendToParentSession(args),
+      ),
+    ]
+    : [];
+
+  return [
       tool(
         'create_derived_session',
         'Start a derived session ("sesja pochodna"): a NEW, clean Claude session in the same project directory that works on '
@@ -219,6 +291,14 @@ export function createDerivedSessionsMcpServer(context: DerivedSessionsContext) 
         },
         async (args) => handlers.sendToDerivedSession(args),
       ),
-    ],
+    ...parentTools,
+  ];
+}
+
+export function createDerivedSessionsMcpServer(context: DerivedSessionsContext) {
+  return createSdkMcpServer({
+    name: DERIVED_SESSIONS_SERVER_NAME,
+    version: '2.1.0',
+    tools: buildDerivedSessionsTools(context),
   });
 }

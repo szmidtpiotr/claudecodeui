@@ -8,7 +8,13 @@
  * 2. when one of the child's headless turns ends, its final reply is sent
  *    back to the parent as a message — steered into the parent's running
  *    turn, or starting a new parent turn when the parent is idle;
- * 3. the parent can list its children and continue one.
+ * 3. the parent can list its children and continue one;
+ * 4. a derived session can send its parent a message on purpose
+ *    (send_to_parent_session), delivered the same way as a report.
+ *
+ * Only turns this module starts report back automatically. A turn the user
+ * starts in a derived session from the browser does not; there the agent
+ * messages the parent explicitly, as in the desktop app.
  *
  * The runner (queryClaudeSDK) lives in server/claude-sdk.js, which this module
  * must not import; it registers itself through configureDerivedSessionsRuntime.
@@ -26,8 +32,10 @@ import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
 import {
+  buildDerivedChildMessage,
   buildDerivedReportMessage,
   buildDerivedSessionPrompt,
+  buildParentSessionMessage,
   type DerivedReportStatus,
 } from '../../../../shared/derivedSessionReport.js';
 
@@ -353,10 +361,15 @@ export function sendToDerivedSession(input: {
 }): SendToDerivedSessionResult {
   const rt = requireRuntime();
   const messageId = crypto.randomUUID();
-  const message = input.message.trim();
-  if (!message) {
+  const text = input.message.trim();
+  if (!text) {
     throw new AppError('The message is empty.', { code: 'DERIVED_BAD_INPUT', statusCode: 400 });
   }
+  const message = buildParentSessionMessage({
+    parentSessionId: input.parentSessionId,
+    parentTitle: sessionsDb.getSessionById(input.parentSessionId)?.custom_name ?? null,
+    text,
+  });
   reportTargets.set(input.childSessionId, input.parentSessionId);
 
   if (rt.isSessionActive(input.childSessionId)) {
@@ -372,13 +385,18 @@ export function sendToDerivedSession(input: {
     });
   }
 
+  // The child may have been driven from the browser last (no turn of ours
+  // ran in it); it runs with what it last ran with, else like the parent.
+  // The echo shows the message at once in tabs that have the child open.
+  const userId = input.userId ?? sessionUsers.get(input.childSessionId) ?? null;
+  echoPrompt(input.childSessionId, userId, messageId, message);
   startHeadlessTurn({
     sessionId: input.childSessionId,
     prompt: message,
     isNew: false,
     reportTo: input.parentSessionId,
     runOptions: getRememberedRunOptions(input.childSessionId) ?? input.runOptions,
-    userId: input.userId,
+    userId,
     promptUuid: messageId,
   });
   return { mode: 'new_turn', messageId };
@@ -412,12 +430,22 @@ export type ReportDelivery =
   | { mode: 'dropped'; reason: 'relay_limit' | 'parent_missing' | 'error'; detail?: string };
 
 /**
- * Decides how a report reaches the parent and does it:
- * - the parent's turn is running here → steered in, read at its next tool call;
- * - otherwise → a new headless parent turn with the report as its prompt.
- * Deliveries into one parent run one after another, so a second report that
- * arrives while the first one's turn is starting joins that turn.
+ * Shows a prompt at once in every tab that has the session open; the run's
+ * prompt carries the same uuid, so history and the live view agree.
  */
+function echoPrompt(sessionId: string, userId: string | number | null, messageId: string, content: string): void {
+  const echoWriter = createWriter(sessionId, userId);
+  for (const message of sessionsService.normalizeMessage('claude', {
+    type: 'user',
+    uuid: messageId,
+    timestamp: new Date().toISOString(),
+    message: { role: 'user', content },
+  }, sessionId)) {
+    echoWriter.send(message);
+  }
+}
+
+/** Sends the end-of-turn report of a server-started derived turn to the parent. */
 export function deliverDerivedReport(input: {
   parentSessionId: string;
   childSessionId: string;
@@ -425,12 +453,74 @@ export function deliverDerivedReport(input: {
   status: DerivedReportStatus;
   text: string | null;
 }): Promise<ReportDelivery> {
-  const content = buildDerivedReportMessage({
+  return deliverToParent({
+    parentSessionId: input.parentSessionId,
     childSessionId: input.childSessionId,
-    childTitle: input.childTitle,
-    status: input.status,
-    text: input.text,
+    content: buildDerivedReportMessage({
+      childSessionId: input.childSessionId,
+      childTitle: input.childTitle,
+      status: input.status,
+      text: input.text,
+    }),
   });
+}
+
+/** The parent a session was derived from (agent-created or forked), or null. */
+export function getParentSessionId(sessionId: string | null | undefined): string | null {
+  if (!sessionId) {
+    return null;
+  }
+  try {
+    return sessionsDb.getSessionById(sessionId)?.parent_session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A derived session messages its parent on purpose (send_to_parent_session),
+ * for example because the user asked it to from the browser. Delivered like a
+ * report, under the same per-parent relay limit.
+ */
+export function sendToParentSession(input: {
+  childSessionId: string;
+  message: string;
+  userId: string | number | null;
+}): Promise<ReportDelivery> {
+  requireRuntime();
+  const message = input.message.trim();
+  if (!message) {
+    throw new AppError('The message is empty.', { code: 'DERIVED_BAD_INPUT', statusCode: 400 });
+  }
+  const parentSessionId = getParentSessionId(input.childSessionId);
+  if (!parentSessionId) {
+    throw new AppError('This session has no parent session.', { code: 'DERIVED_NO_PARENT', statusCode: 400 });
+  }
+  if (input.userId !== null && input.userId !== undefined && !sessionUsers.has(input.childSessionId)) {
+    sessionUsers.set(input.childSessionId, input.userId);
+  }
+  const title = sessionsDb.getSessionById(input.childSessionId)?.custom_name || input.childSessionId;
+  return deliverToParent({
+    parentSessionId,
+    childSessionId: input.childSessionId,
+    content: buildDerivedChildMessage({ childSessionId: input.childSessionId, childTitle: title, text: message }),
+  });
+}
+
+/**
+ * Decides how a message from a derived session (report or explicit message)
+ * reaches the parent and does it:
+ * - the parent's turn is running here → steered in, read at its next tool call;
+ * - otherwise → a new headless parent turn with the message as its prompt.
+ * Deliveries into one parent run one after another, so a second message that
+ * arrives while the first one's turn is starting joins that turn.
+ */
+function deliverToParent(input: {
+  parentSessionId: string;
+  childSessionId: string;
+  content: string;
+}): Promise<ReportDelivery> {
+  const { content } = input;
   const parentId = input.parentSessionId;
 
   const run = async (): Promise<ReportDelivery> => {
@@ -463,15 +553,7 @@ export function deliverDerivedReport(input: {
     const userId = sessionUsers.get(input.childSessionId) ?? sessionUsers.get(parentId) ?? null;
     // Shown at once in every tab that has the parent open; the run's prompt
     // carries the same uuid, so history and the live view agree.
-    const echoWriter = createWriter(parentId, userId);
-    for (const message of sessionsService.normalizeMessage('claude', {
-      type: 'user',
-      uuid: messageId,
-      timestamp: new Date().toISOString(),
-      message: { role: 'user', content },
-    }, parentId)) {
-      echoWriter.send(message);
-    }
+    echoPrompt(parentId, userId, messageId, content);
 
     startHeadlessTurn({
       sessionId: parentId,

@@ -33,8 +33,9 @@ import { sessionsService } from './modules/providers/services/sessions.service.j
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import {
   configureDerivedSessionsRuntime,
+  getParentSessionId,
   createDerivedSessionsMcpServer,
-  DERIVED_SESSIONS_ALLOWED_TOOLS,
+  derivedSessionsAllowedTools,
   DERIVED_SESSIONS_SERVER_NAME,
   rememberSessionRunOptions,
 } from './modules/providers/index.js';
@@ -761,16 +762,21 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Lets the agent create derived (forked) sessions when the user asks for
     // one. Only for chat runs: an unattended run never gets it.
+    // A run in a session that has a parent (a resume, or a derived session's
+    // first turn under its recorded id) also gets send_to_parent_session —
+    // whether the turn was started by the user in the browser or by the server.
     if (!options.unattended) {
+      const parentSessionId = getParentSessionId(capturedSessionId);
       sdkOptions.mcpServers = {
         ...(sdkOptions.mcpServers || {}),
         [DERIVED_SESSIONS_SERVER_NAME]: createDerivedSessionsMcpServer({
           getCurrentSessionId: () => capturedSessionId || sessionId || null,
           parentOptions: options,
           userId: ws?.userId ?? null,
+          parentSessionId,
         }),
       };
-      sdkOptions.allowedTools = [...sdkOptions.allowedTools, ...DERIVED_SESSIONS_ALLOWED_TOOLS];
+      sdkOptions.allowedTools = [...sdkOptions.allowedTools, ...derivedSessionsAllowedTools(Boolean(parentSessionId))];
     }
 
     // Handle images - save to temp files and modify prompt

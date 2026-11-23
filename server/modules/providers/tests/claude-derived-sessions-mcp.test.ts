@@ -5,7 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
-import { createDerivedSessionHandlers } from '@/modules/providers/list/claude/claude-derived-sessions-mcp.js';
+import {
+  buildDerivedSessionsTools,
+  createDerivedSessionHandlers,
+  derivedSessionsAllowedTools,
+} from '@/modules/providers/list/claude/claude-derived-sessions-mcp.js';
 import { ClaudeSessionSynchronizer } from '@/modules/providers/list/claude/claude-session-synchronizer.provider.js';
 import {
   configureDerivedSessionsRuntime,
@@ -19,7 +23,11 @@ import {
 } from '@/modules/providers/services/derived-sessions.service.js';
 
 import {
+  buildDerivedChildMessage,
   buildDerivedReportMessage,
+  buildDerivedSessionPrompt,
+  parseDerivedSessionPrompt,
+  parseParentSessionMessage,
   parseDerivedReportMessage,
   truncateReportText,
 } from '../../../../shared/derivedSessionReport.js';
@@ -194,7 +202,7 @@ test('a finished child reports to an idle parent by starting a new parent turn',
     assert.equal(run.options.model, 'haiku');
     assert.match(run.options.promptUuid, /^[0-9a-f-]{36}$/);
     const report = parseDerivedReportMessage(run.prompt);
-    assert.deepEqual(report, { childSessionId: created.sessionId, childTitle: 'Child', status: 'completed', body: 'child-ok' });
+    assert.deepEqual(report, { kind: 'report', childSessionId: created.sessionId, childTitle: 'Child', status: 'completed', body: 'child-ok' });
     assert.equal(runtime.steers.length, 0);
 
     // The parent was not itself created by a tool, so its answer goes nowhere.
@@ -337,7 +345,7 @@ test('list, status and send work only on derived sessions of the current session
     const resumed = parse(await handlers.sendToDerivedSession({ sessionId: child.sessionId, message: 'now z' }));
     assert.equal(resumed.delivery, 'new_turn');
     const childTurn = await next;
-    assert.equal(childTurn.prompt, 'now z');
+    assert.deepEqual(parseParentSessionMessage(childTurn.prompt), { parentSessionId: 'root', parentTitle: 'Root', body: 'now z' });
     assert.equal(childTurn.options.sessionId, child.sessionId);
     next = runtime.nextRun();
     childTurn.finish({ status: 'completed', sessionId: child.sessionId, resultText: 'z done' });
@@ -383,6 +391,7 @@ test('report messages round-trip and long replies are cut with a note', () => {
   const message = buildDerivedReportMessage({ childSessionId: id, childTitle: 'Tytuł „z” cudzysłowem', status: 'completed', text: 'line 1\nline 2' });
   assert.ok(message.startsWith(`[Sesja pochodna „Tytuł „z” cudzysłowem” (${id}) zakończyła turę]\n`));
   assert.deepEqual(parseDerivedReportMessage(message), {
+    kind: 'report',
     childSessionId: id,
     childTitle: 'Tytuł „z” cudzysłowem',
     status: 'completed',
@@ -395,4 +404,172 @@ test('report messages round-trip and long replies are cut with a note', () => {
   assert.ok(cut.startsWith('x'.repeat(4000) + '…'));
   assert.match(cut, /obcięta do 4000 z 5000 znaków/);
   assert.equal(truncateReportText('  short  '), 'short');
+});
+
+test('send_to_parent_session is registered only for a session that has a parent', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    sessionsDb.createSession('child', 'claude', PROJECT, 'Child', undefined, undefined, null, 'user', 'root');
+    fakeRuntime();
+    const names = (sessionId: string | null) => buildDerivedSessionsTools({ getCurrentSessionId: () => sessionId, parentOptions: {}, userId: null })
+      .map((definition) => definition.name);
+
+    assert.ok(names('child').includes('send_to_parent_session'));
+    assert.ok(!names('root').includes('send_to_parent_session'));
+    // A brand-new session (no id yet) has no parent either.
+    assert.ok(!names(null).includes('send_to_parent_session'));
+    assert.ok(names('root').includes('create_derived_session'));
+    // An explicit lookup result wins (claude-sdk.js passes the one made at query start).
+    assert.ok(!buildDerivedSessionsTools({ getCurrentSessionId: () => 'child', parentOptions: {}, userId: null, parentSessionId: null })
+      .some((definition) => definition.name === 'send_to_parent_session'));
+
+    assert.ok(derivedSessionsAllowedTools(true).includes('mcp__derived-sessions__send_to_parent_session'));
+    assert.ok(!derivedSessionsAllowedTools(false).includes('mcp__derived-sessions__send_to_parent_session'));
+  });
+});
+
+test('a child messages its running parent by steering into the parent turn', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    sessionsDb.createSession('child', 'claude', PROJECT, 'Kolory', undefined, undefined, null, 'user', 'root');
+    const runtime = fakeRuntime();
+    runtime.active.add('root');
+
+    const result = parse(await handlersFor('child').sendToParentSession({ message: 'kolor czerwony' }));
+    assert.equal(result.delivery, 'into_running_turn');
+    assert.equal(result.parentSessionId, 'root');
+    assert.equal(runtime.runs.length, 0);
+    assert.equal(runtime.steers.length, 1);
+    assert.equal(runtime.steers[0].sessionId, 'root');
+    // 'child' is not a uuid, so the parser does not match; check the text instead.
+    assert.equal(runtime.steers[0].content, '[Wiadomość od sesji pochodnej „Kolory” (child)]\nkolor czerwony');
+  });
+});
+
+test('a child messages its idle parent by starting a parent turn with the parent settings', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    const childId = '11111111-2222-4333-8444-555555555555';
+    sessionsDb.createSession(childId, 'claude', PROJECT, 'Kolory', undefined, undefined, null, 'user', 'root');
+    const runtime = fakeRuntime();
+    rememberSessionRunOptions('root', { model: 'sonnet', permissionMode: 'acceptEdits' });
+
+    const next = runtime.nextRun();
+    const result = parse(await handlersFor(childId, { model: 'haiku' }).sendToParentSession({ message: 'kolor czerwony' }));
+    assert.equal(result.delivery, 'new_turn');
+    const run = await next;
+    assert.equal(run.options.sessionId, 'root');
+    assert.equal(run.options.model, 'sonnet');
+    assert.equal(run.options.permissionMode, 'acceptEdits');
+    assert.deepEqual(parseDerivedReportMessage(run.prompt), {
+      kind: 'message', childSessionId: childId, childTitle: 'Kolory', status: 'completed', body: 'kolor czerwony',
+    });
+    // The parent's answer is not reported back to the child (no loop).
+    run.finish();
+    await waitForDerivedTurn('root');
+    assert.equal(runtime.runs.length, 1);
+  });
+});
+
+test('child messages share the per-parent relay cap; a session without a parent is refused', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    sessionsDb.createSession('child', 'claude', PROJECT, 'Child', undefined, undefined, null, 'user', 'root');
+    const runtime = fakeRuntime();
+    const handlers = handlersFor('child');
+
+    for (let index = 0; index < MAX_RELAY_TURNS_PER_WINDOW; index += 1) {
+      assert.equal(parse(await handlers.sendToParentSession({ message: `m${index}` })).delivery, 'new_turn');
+      runtime.runs.at(-1)!.finish();
+      await waitForDerivedTurn('root');
+    }
+    const refused = await handlers.sendToParentSession({ message: 'one more' });
+    assert.equal(refused.isError, true);
+    assert.match(refused.content[0].text, /too many messages/);
+    assert.equal(runtime.runs.length, MAX_RELAY_TURNS_PER_WINDOW);
+
+    const orphan = await handlersFor('root').sendToParentSession({ message: 'x' });
+    assert.equal(orphan.isError, true);
+    assert.match(orphan.content[0].text, /no parent/);
+  });
+});
+
+test('a turn the user starts in a child (not through this module) does not auto-report', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    const runtime = fakeRuntime();
+    const child = parse(await handlersFor('root').createDerivedSession({ title: 'Child', task: 'x' }));
+    // The server-started task turn reports (one parent turn).
+    const next = runtime.nextRun();
+    runtime.runs[0].finish({ status: 'completed', sessionId: child.sessionId, resultText: 'done' });
+    (await next).finish();
+    await waitForDerivedTurn('root');
+    assert.equal(runtime.runs.length, 2);
+
+    // The user then drives the child from the browser: queryClaudeSDK runs it
+    // directly (it only remembers the run options here) and the turn ends.
+    rememberSessionRunOptions(child.sessionId, { model: 'opus' });
+    runtime.active.add(child.sessionId);
+    runtime.active.delete(child.sessionId);
+    await waitForDeliveries('root');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(runtime.runs.length, 2);
+    assert.equal(runtime.steers.length, 0);
+  });
+});
+
+test('send_to_derived_session continues an idle child last driven by the user, with its own settings', async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Root');
+    // A child that exists from an earlier server life (no in-memory state),
+    // last run by the user from the browser with sonnet.
+    sessionsDb.createSession('child', 'claude', PROJECT, 'Kolory', undefined, undefined, null, 'user', 'root');
+    const runtime = fakeRuntime();
+    rememberSessionRunOptions('child', { model: 'sonnet', permissionMode: 'default' });
+
+    let next = runtime.nextRun();
+    const sent = parse(await handlersFor('root', { model: 'haiku' }).sendToDerivedSession({ sessionId: 'child', message: 'kolor zielony' }));
+    assert.equal(sent.delivery, 'new_turn');
+    const childTurn = await next;
+    assert.equal(childTurn.options.sessionId, 'child');
+    assert.equal(childTurn.options.newSessionId, undefined);
+    assert.equal(childTurn.options.model, 'sonnet');
+    assert.equal(childTurn.writerSession, 'child');
+    assert.equal(parseParentSessionMessage(childTurn.prompt)?.body, 'kolor zielony');
+    // The parent-started turn reports back.
+    next = runtime.nextRun();
+    childTurn.finish({ status: 'completed', sessionId: 'child', resultText: 'zielony przyjęty' });
+    const reportTurn = await next;
+    assert.equal(reportTurn.options.sessionId, 'root');
+    assert.ok(reportTurn.prompt.endsWith('zielony przyjęty'));
+    reportTurn.finish();
+    await waitForDerivedTurn('root');
+
+    // With nothing remembered for the child, it runs like the parent.
+    sessionsDb.createSession('child2', 'claude', PROJECT, 'Two', undefined, undefined, null, 'user', 'root');
+    next = runtime.nextRun();
+    await handlersFor('root', { model: 'haiku' }).sendToDerivedSession({ sessionId: 'child2', message: 'hi' });
+    const second = await next;
+    assert.equal(second.options.model, 'haiku');
+    next = runtime.nextRun();
+    second.finish();
+    (await next).finish();
+    await waitForDerivedTurn('root');
+  });
+});
+
+test('child and parent messages and the task prompt round-trip', () => {
+  const id = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const fromChild = buildDerivedChildMessage({ childSessionId: id, childTitle: 'Kolory', text: ' kolor czerwony\n' });
+  assert.equal(fromChild, `[Wiadomość od sesji pochodnej „Kolory” (${id})]\nkolor czerwony`);
+  assert.deepEqual(parseDerivedReportMessage(fromChild), { kind: 'message', childSessionId: id, childTitle: 'Kolory', status: 'completed', body: 'kolor czerwony' });
+  assert.equal(parseParentSessionMessage(fromChild), null);
+
+  const prompt = buildDerivedSessionPrompt({ parentSessionId: 'root-1', parentTitle: 'Main work', task: 'Run the tests\n\nthen report' });
+  assert.deepEqual(parseDerivedSessionPrompt(prompt), { parentSessionId: 'root-1', parentTitle: 'Main work', task: 'Run the tests\n\nthen report' });
+  assert.deepEqual(parseDerivedSessionPrompt(buildDerivedSessionPrompt({ parentSessionId: id, parentTitle: null, task: 'x' })), {
+    parentSessionId: id, parentTitle: null, task: 'x',
+  });
+  assert.equal(parseDerivedSessionPrompt('hello'), null);
+  assert.equal(parseDerivedReportMessage(prompt), null);
 });

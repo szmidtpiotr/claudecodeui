@@ -8,11 +8,13 @@ export { closeSessionsWatcher } from './services/sessions-watcher.service.js';
 export {
   createDerivedSessionsMcpServer,
   DERIVED_SESSIONS_ALLOWED_TOOLS,
+  derivedSessionsAllowedTools,
   DERIVED_SESSIONS_SERVER_NAME,
 } from './list/claude/claude-derived-sessions-mcp.js';
 
 export {
   configureDerivedSessionsRuntime,
+  getParentSessionId,
   isDerivedHeadlessTurnRunning,
   rememberSessionRunOptions,
 } from './services/derived-sessions.service.js';
