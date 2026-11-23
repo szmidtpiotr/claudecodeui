@@ -12,7 +12,7 @@ import cors from 'cors';
 import mime from 'mime-types';
 import Database from 'better-sqlite3';
 
-import { AppError, FORBIDDEN_WORKSPACE_PATHS, WORKSPACES_ROOT, getOpenCodeDatabasePath, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
+import { AppError, FORBIDDEN_WORKSPACE_PATHS, WORKSPACES_ROOT, getOpenCodeDatabasePath, getReportedClaudeContextWindow, normalizeProjectPath, resolveClaudeContextWindow, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createWebSocketServer } from '@/modules/websocket/index.js';
 
@@ -1601,8 +1601,8 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
         }
         const lines = fileContent.trim().split('\n');
 
-        const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
-        const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
+        // The window the SDK last reported for this session, else CONTEXT_WINDOW.
+        const contextWindow = resolveClaudeContextWindow(getReportedClaudeContextWindow(safeSessionId));
         let inputTokens = 0;
         let outputTokens = 0;
 

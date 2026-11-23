@@ -6,6 +6,7 @@ import { spawn } from 'cross-spawn';
 import { rgPath } from '@vscode/ripgrep';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { isClaudeNonTurnMessageRow } from '@/shared/utils.js';
 
 type AnyRecord = Record<string, any>;
 type SearchableProvider = 'claude' | 'codex' | 'gemini';
@@ -353,7 +354,7 @@ type ClaudeSearchableMessage = {
  * of those rows rather than the raw wrapper syntax.
  */
 function extractClaudeSearchableMessage(entry: AnyRecord): ClaudeSearchableMessage | null {
-  if (!entry.message?.content || entry.isApiErrorMessage) {
+  if (!entry.message?.content || entry.isApiErrorMessage || isClaudeNonTurnMessageRow(entry)) {
     return null;
   }
 
