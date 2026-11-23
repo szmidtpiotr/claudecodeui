@@ -30,6 +30,8 @@ type SidebarProjectSessionsProps = {
     sessionTitle: string,
     provider: LLMProvider,
   ) => void;
+  /** Archives the session straight away; it stays restorable from the archive. */
+  onArchiveSession: (sessionId: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
   pinnedSessionIds: Set<string>;
@@ -74,6 +76,7 @@ export default function SidebarProjectSessions({
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
+  onArchiveSession,
   onLoadMoreSessions,
   onNewSession,
   pinnedSessionIds,
@@ -145,6 +148,7 @@ export default function SidebarProjectSessions({
               onProjectSelect={onProjectSelect}
               onSessionSelect={onSessionSelect}
               onDeleteSession={onDeleteSession}
+              onArchiveSession={onArchiveSession}
               isPinned={pinnedSessionIds.has(session.id)}
               onTogglePin={onTogglePin}
               needsAttention={attentionSessionIds?.has(session.id) ?? false}

@@ -44,6 +44,8 @@ type SidebarProjectItemProps = {
     sessionTitle: string,
     provider: LLMProvider,
   ) => void;
+  /** Archives the session straight away; it stays restorable from the archive. */
+  onArchiveSession: (sessionId: string) => void;
   onLoadMoreSessions: (projectId: string) => void;
   onNewSession: (project: Project) => void;
   onMoveSessionToProject: (confirmation: SessionMoveConfirmation) => void;
@@ -89,6 +91,7 @@ export default function SidebarProjectItem({
   onDeleteProject,
   onSessionSelect,
   onDeleteSession,
+  onArchiveSession,
   onLoadMoreSessions,
   onNewSession,
   onMoveSessionToProject,
@@ -469,6 +472,7 @@ export default function SidebarProjectItem({
         onProjectSelect={onProjectSelect}
         onSessionSelect={onSessionSelect}
         onDeleteSession={onDeleteSession}
+        onArchiveSession={onArchiveSession}
         onLoadMoreSessions={onLoadMoreSessions}
         onNewSession={onNewSession}
         pinnedSessionIds={pinnedSessionIds}

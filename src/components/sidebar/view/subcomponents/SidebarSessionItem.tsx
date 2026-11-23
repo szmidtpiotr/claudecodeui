@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Check, Copy, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Trash2, X } from 'lucide-react';
+import { Archive, Check, Copy, Edit2, Loader2, MoreHorizontal, Pin, PinOff, Sparkles, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu, Badge, Button, Dialog, DialogContent, DialogTitle, Tooltip, buttonVariants } from '../../../../shared/view/ui';
@@ -32,6 +32,8 @@ type SidebarSessionItemProps = {
     sessionTitle: string,
     provider: LLMProvider,
   ) => void;
+  /** Archives the session straight away; it stays restorable from the archive. */
+  onArchiveSession: (sessionId: string) => void;
   isPinned: boolean;
   onTogglePin: (sessionId: string) => void;
   needsAttention?: boolean;
@@ -65,6 +67,7 @@ export default function SidebarSessionItem({
   onProjectSelect,
   onSessionSelect,
   onDeleteSession,
+  onArchiveSession,
   isPinned,
   onTogglePin,
   needsAttention = false,
@@ -479,17 +482,30 @@ export default function SidebarSessionItem({
               </button>
 
               {!sessionView.isCursorSession && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileOptionsOpen(false);
-                    requestDeleteSession();
-                  }}
-                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-red-600 transition-colors active:bg-red-500/10 dark:text-red-400"
-                >
-                  <Trash2 className="h-5 w-5 flex-shrink-0" />
-                  <span className="text-sm font-medium">Archive or delete session</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      onArchiveSession(session.id);
+                    }}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-foreground transition-colors active:bg-muted"
+                  >
+                    <Archive className="h-5 w-5 flex-shrink-0" />
+                    <span className="text-sm font-medium">Archive session</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOptionsOpen(false);
+                      requestDeleteSession();
+                    }}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-red-600 transition-colors active:bg-red-500/10 dark:text-red-400"
+                  >
+                    <Trash2 className="h-5 w-5 flex-shrink-0" />
+                    <span className="text-sm font-medium">Delete session</span>
+                  </button>
+                </>
               )}
             </div>
             <button
@@ -660,11 +676,16 @@ export default function SidebarSessionItem({
                   onSelect: handleCopyAction,
                 },
                 ...(!sessionView.isCursorSession ? [{
+                  key: 'archive',
+                  label: 'Archive session',
+                  icon: Archive,
+                  showDividerBefore: true,
+                  onSelect: () => onArchiveSession(session.id),
+                }, {
                   key: 'delete',
-                  label: 'Archive or delete session',
+                  label: 'Delete session',
                   icon: Trash2,
                   isDanger: true,
-                  showDividerBefore: true,
                   onSelect: requestDeleteSession,
                 }] : []),
               ]}

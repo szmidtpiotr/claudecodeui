@@ -791,14 +791,9 @@ export function useSidebarController({
     [],
   );
 
-  const confirmDeleteSession = useCallback(async (hardDelete = false) => {
-    if (!sessionDeleteConfirmation) {
-      return;
-    }
-
-    const { sessionId } = sessionDeleteConfirmation;
-    setSessionDeleteConfirmation(null);
-
+  // Shared by archive and permanent delete: the server takes the same route for
+  // both, and either way the session leaves the active lists.
+  const removeSession = useCallback(async (sessionId: string, hardDelete: boolean) => {
     try {
       const response = await api.deleteSession(sessionId, hardDelete);
 
@@ -807,17 +802,37 @@ export function useSidebarController({
         await fetchArchivedSessions();
       } else {
         const errorText = await response.text();
-        console.error('[Sidebar] Failed to delete session:', {
+        console.error(`[Sidebar] Failed to ${hardDelete ? 'delete' : 'archive'} session:`, {
           status: response.status,
           error: errorText,
         });
-        alert(t('messages.deleteSessionFailed'));
+        alert(hardDelete
+          ? t('messages.deleteSessionFailed')
+          : t('messages.archiveSessionFailed', 'Failed to archive session. Please try again.'));
       }
     } catch (error) {
-      console.error('[Sidebar] Error deleting session:', error);
-      alert(t('messages.deleteSessionError'));
+      console.error(`[Sidebar] Error ${hardDelete ? 'deleting' : 'archiving'} session:`, error);
+      alert(hardDelete
+        ? t('messages.deleteSessionError')
+        : t('messages.archiveSessionError', 'Error archiving session. Please try again.'));
     }
-  }, [fetchArchivedSessions, onSessionDelete, sessionDeleteConfirmation, t]);
+  }, [fetchArchivedSessions, onSessionDelete, t]);
+
+  // Archiving is reversible from the archive list, so it skips the confirmation
+  // that guards a permanent delete.
+  const archiveSession = useCallback((sessionId: string) => {
+    void removeSession(sessionId, false);
+  }, [removeSession]);
+
+  const confirmDeleteSession = useCallback(async () => {
+    if (!sessionDeleteConfirmation) {
+      return;
+    }
+
+    const { sessionId } = sessionDeleteConfirmation;
+    setSessionDeleteConfirmation(null);
+    await removeSession(sessionId, true);
+  }, [removeSession, sessionDeleteConfirmation]);
 
   const requestProjectDelete = useCallback(
     (project: Project) => {
@@ -1086,6 +1101,7 @@ export function useSidebarController({
     saveProjectName,
     showDeleteSessionConfirmation,
     confirmDeleteSession,
+    archiveSession,
     requestProjectDelete,
     confirmDeleteProject,
     handleProjectSelect,
