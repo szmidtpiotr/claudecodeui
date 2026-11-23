@@ -22,6 +22,7 @@ import PinnedUserMessage from './subcomponents/PinnedUserMessage';
 import PromptNavPanel from './subcomponents/PromptNavPanel';
 import CommandResultModal from './subcomponents/CommandResultModal';
 import SudoPasswordModal from './subcomponents/SudoPasswordModal';
+import { isEscapeOwnedElsewhere } from '../utils/escapeOwnership';
 
 
 type PendingViewSession = {
@@ -330,6 +331,11 @@ function ChatInterface({
       if (event.key !== 'Escape' || event.repeat || event.defaultPrevented) {
         return;
       }
+      // Escape that cancels a rename, closes a menu/dialog or belongs to the
+      // terminal must neither arm nor fire the abort.
+      if (isEscapeOwnedElsewhere(event, textareaRef.current)) {
+        return;
+      }
 
       event.preventDefault();
 
@@ -356,7 +362,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession, isLoading]);
+  }, [canAbortSession, handleAbortSession, isLoading, textareaRef]);
 
   useEffect(() => {
     return () => {
