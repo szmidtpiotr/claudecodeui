@@ -145,6 +145,15 @@ export function isDerivedTurnRunning(sessionId: string): boolean {
   return runningTurns.has(sessionId) || Boolean(runtime?.isSessionActive(sessionId));
 }
 
+/**
+ * True while a headless turn this module started (a derived session's task,
+ * a continuation, or a report-started parent turn) is running. Start and end
+ * both emit a metadata change, so the sidebar list stays current.
+ */
+export function isDerivedHeadlessTurnRunning(sessionId: string): boolean {
+  return runningTurns.has(sessionId);
+}
+
 /** Settles when the headless turn this module started in a session ends (tests, e2e). */
 export function waitForDerivedTurn(sessionId: string): Promise<void> {
   return runningTurns.get(sessionId) ?? Promise.resolve();

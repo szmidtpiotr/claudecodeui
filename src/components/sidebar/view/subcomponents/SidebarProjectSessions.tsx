@@ -244,6 +244,14 @@ export default function SidebarProjectSessions({
                     </button>
                   ) : <span className="w-3 flex-shrink-0" aria-hidden="true" />
                 )}
+                {session.derivedRunning && (
+                  <span
+                    role="status"
+                    aria-label={t('sessions.derivedRunning')}
+                    title={t('sessions.derivedRunning')}
+                    className="pointer-events-none absolute right-1 top-1 z-10 h-2 w-2 animate-pulse rounded-full bg-violet-500"
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <SidebarSessionItem
                     project={project}

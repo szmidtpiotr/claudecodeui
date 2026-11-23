@@ -38,7 +38,8 @@
     "expandForks": "Show derived sessions",
     "collapseForks": "Hide derived sessions",
     "expandForksFor": "Show derived sessions of {{session}}",
-    "collapseForksFor": "Hide derived sessions of {{session}}"
+    "collapseForksFor": "Hide derived sessions of {{session}}",
+    "derivedRunning": "Derived session is working"
   },
   "tooltips": {
     "viewEnvironments": "View Environments",

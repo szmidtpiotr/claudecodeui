@@ -13,5 +13,6 @@ export {
 
 export {
   configureDerivedSessionsRuntime,
+  isDerivedHeadlessTurnRunning,
   rememberSessionRunOptions,
 } from './services/derived-sessions.service.js';

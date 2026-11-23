@@ -55,6 +55,8 @@ export interface ProjectSession {
   messageCount?: number;
   /** Session this one was derived (forked) from, when known. */
   parentSessionId?: string | null;
+  /** A server-started derived-session turn is running in it. */
+  derivedRunning?: boolean;
   __provider?: LLMProvider;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.

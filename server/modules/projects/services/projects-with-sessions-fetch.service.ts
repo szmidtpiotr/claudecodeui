@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
-import { sessionSynchronizerService } from '@/modules/providers/index.js';
+import { isDerivedHeadlessTurnRunning, sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
@@ -14,6 +14,8 @@ type SessionSummary = {
   lastActivity: string;
   /** Session this one was derived (forked) from; the sidebar nests it there. */
   parentSessionId: string | null;
+  /** A server-started (derived-session) turn is running in it right now. */
+  derivedRunning?: boolean;
 };
 
 type SessionsByProvider = Record<'claude' | 'cursor' | 'codex' | 'gemini' | 'opencode', SessionSummary[]>;
@@ -136,6 +138,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
     parentSessionId: row.parent_session_id ?? null,
+    ...(isDerivedHeadlessTurnRunning(row.session_id) ? { derivedRunning: true } : {}),
   };
 }
 
