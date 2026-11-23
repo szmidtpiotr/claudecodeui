@@ -32,6 +32,11 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import {
+  createDerivedSessionsMcpServer,
+  DERIVED_SESSIONS_ALLOWED_TOOLS,
+  DERIVED_SESSIONS_SERVER_NAME,
+} from './modules/providers/index.js';
+import {
   createNormalizedMessage,
   getReportedClaudeContextWindow,
   readReportedClaudeContextWindow,
@@ -650,6 +655,22 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const mcpServers = await loadMcpConfig(options.cwd);
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
+    }
+
+    // Lets the agent create derived (forked) sessions when the user asks for
+    // one. Only for chat runs: an unattended run never gets it.
+    if (!options.unattended) {
+      sdkOptions.mcpServers = {
+        ...(sdkOptions.mcpServers || {}),
+        [DERIVED_SESSIONS_SERVER_NAME]: createDerivedSessionsMcpServer({
+          getCurrentSessionId: () => capturedSessionId || sessionId || null,
+          parentOptions: options,
+          userId: ws?.userId ?? null,
+          runHeadless: (prompt, childOptions, writer) => queryClaudeSDK(prompt, childOptions, writer),
+          isSessionActive: (id) => Boolean(isClaudeSDKSessionActive(id)),
+        }),
+      };
+      sdkOptions.allowedTools = [...sdkOptions.allowedTools, ...DERIVED_SESSIONS_ALLOWED_TOOLS];
     }
 
     // Handle images - save to temp files and modify prompt
