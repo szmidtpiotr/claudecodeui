@@ -10,3 +10,8 @@ export {
   DERIVED_SESSIONS_ALLOWED_TOOLS,
   DERIVED_SESSIONS_SERVER_NAME,
 } from './list/claude/claude-derived-sessions-mcp.js';
+
+export {
+  configureDerivedSessionsRuntime,
+  rememberSessionRunOptions,
+} from './services/derived-sessions.service.js';

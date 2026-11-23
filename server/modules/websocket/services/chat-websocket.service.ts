@@ -333,7 +333,9 @@ export function handleChatConnection(
 
         // Register this window as a subscriber for the session's broadcast stream
         // so all open windows receive live events, not only the one that started the run.
-        if (isActive && sessionId) {
+        // Also when idle: a turn the server starts on its own (a derived session's
+        // report reaching its parent) streams to the windows that have it open.
+        if (sessionId) {
           registerSessionConnection(sessionId, ws);
         }
 

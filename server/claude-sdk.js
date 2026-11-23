@@ -32,9 +32,11 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import {
+  configureDerivedSessionsRuntime,
   createDerivedSessionsMcpServer,
   DERIVED_SESSIONS_ALLOWED_TOOLS,
   DERIVED_SESSIONS_SERVER_NAME,
+  rememberSessionRunOptions,
 } from './modules/providers/index.js';
 import {
   createNormalizedMessage,
@@ -342,7 +344,7 @@ function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_M
 }
 
 function mapCliOptionsToSDK(options = {}) {
-  const { sessionId, cwd, toolsSettings, permissionMode, effort } = options;
+  const { sessionId, newSessionId, cwd, toolsSettings, permissionMode, effort } = options;
 
   const sdkOptions = {};
 
@@ -429,6 +431,10 @@ function mapCliOptionsToSDK(options = {}) {
   // Map resume session
   if (sessionId) {
     sdkOptions.resume = sessionId;
+  } else if (newSessionId) {
+    // A new session under an id chosen up front (derived sessions record it
+    // before the run starts).
+    sdkOptions.sessionId = newSessionId;
   }
 
   return sdkOptions;
@@ -694,7 +700,11 @@ async function loadMcpConfig(cwd) {
  */
 async function queryClaudeSDK(command, options = {}, ws) {
   const { sessionId, sessionSummary } = options;
-  let capturedSessionId = sessionId;
+  // `newSessionId`: start a new session under this id (no resume).
+  let capturedSessionId = sessionId || options.newSessionId || null;
+  if (capturedSessionId) {
+    rememberSessionRunOptions(capturedSessionId, options);
+  }
   let sessionCreatedSent = false;
   let tempImagePaths = [];
   let tempDir = null;
@@ -758,8 +768,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
           getCurrentSessionId: () => capturedSessionId || sessionId || null,
           parentOptions: options,
           userId: ws?.userId ?? null,
-          runHeadless: (prompt, childOptions, writer) => queryClaudeSDK(prompt, childOptions, writer),
-          isSessionActive: (id) => Boolean(isClaudeSDKSessionActive(id)),
         }),
       };
       sdkOptions.allowedTools = [...sdkOptions.allowedTools, ...DERIVED_SESSIONS_ALLOWED_TOOLS];
@@ -938,6 +946,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       message: { role: 'user', content: finalCommand },
       parent_tool_use_id: null,
       shouldQuery: true,
+      // A caller-chosen id for the prompt row (derived-session reports), so
+      // the copy shown live and the one in history are the same message.
+      ...(typeof options.promptUuid === 'string' && options.promptUuid ? { uuid: options.promptUuid } : {}),
     });
 
     const steer = {
@@ -1029,6 +1040,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
         capturedSessionId = message.session_id;
         addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer);
+        rememberSessionRunOptions(capturedSessionId, options);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -1123,7 +1135,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // A user stop already sent its own 'complete' from the abort handler
     if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
-      return;
+      return { status: 'aborted', sessionId: capturedSessionId, resultText: finalResultText };
     }
 
     // Send completion event
@@ -1136,7 +1148,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       stopReason: 'completed',
       summary: finalResultText
     });
-    // Complete
+    return { status: 'completed', sessionId: capturedSessionId || sessionId || null, resultText: finalResultText };
 
   } catch (error) {
     console.error('SDK query error:', error);
@@ -1153,7 +1165,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // The process was killed because the user pressed Stop — not a failure
     if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
-      return;
+      return { status: 'aborted', sessionId: capturedSessionId, resultText: null };
     }
 
     // Check if Claude CLI is installed for a clearer error message
@@ -1171,6 +1183,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionName: sessionSummary,
       error
     });
+    return { status: 'error', sessionId: capturedSessionId || sessionId || null, error: errorContent };
   } finally {
     clearSteerFollowUpTimer();
     unregisterSudoRun(sudoToken);
@@ -1339,6 +1352,14 @@ function listPendingSteers(sessionId) {
 function injectBtwMessage(sessionId, content) {
   return steerClaudeSDKSession(sessionId, createRequestId(), content);
 }
+
+// Derived sessions started by the agent run their turns (and their reports
+// back to the parent) through this runner.
+configureDerivedSessionsRuntime({
+  runHeadless: (prompt, options, writer) => queryClaudeSDK(prompt, options, writer),
+  isSessionActive: (id) => Boolean(isClaudeSDKSessionActive(id)),
+  steer: (id, messageId, content) => steerClaudeSDKSession(id, messageId, content),
+});
 
 // The SDK entry point; swapped only by tests, which drive the run loop with a
 // scripted CLI instead of a real process.

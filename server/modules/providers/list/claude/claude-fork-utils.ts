@@ -142,16 +142,3 @@ export function checkDerivedSessionGuardrails({ createdThisTurn, currentDepth }:
   }
   return null;
 }
-
-/** First message of a derived session that was given a task to run. */
-export function buildDerivedTaskPrompt(input: { parentSessionId: string; parentTitle: string | null; task: string }): string {
-  const parent = input.parentTitle ? `"${input.parentTitle}" (${input.parentSessionId})` : input.parentSessionId;
-  return [
-    `[Derived session] This is a derived session forked from session ${parent}.`,
-    'The conversation above is inherited context from that session. Work on the task below on your own;',
-    'do not create further derived sessions unless the task explicitly asks for it.',
-    '',
-    'Task:',
-    input.task.trim(),
-  ].join('\n');
-}

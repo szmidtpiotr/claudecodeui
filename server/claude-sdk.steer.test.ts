@@ -316,3 +316,40 @@ test('history: task-notification and non-prompt queued commands are not user mes
   assert.equal(readSteeredMessageAttachment(other), null);
   assert.deepEqual(new ClaudeSessionsProvider().normalizeMessage(other, SESSION), []);
 });
+
+test('a derived run starts a new session under a chosen id, tags its prompt and returns the final reply', async () => {
+  const newId = crypto.randomUUID();
+  const promptUuid = crypto.randomUUID();
+  let prompt: AnyRecord | null = null;
+  const captured = installFakeCli(async function* ({ read }) {
+    prompt = await read();
+    // Steering works from the first message: the run is registered up front.
+    assert.equal(steerClaudeSDKSession(newId, crypto.randomUUID(), 'early').ok, true);
+    yield { type: 'system', subtype: 'init', session_id: newId };
+    yield { type: 'result', subtype: 'success', session_id: newId, result: 'child-ok', modelUsage: {} };
+    await read(); // the steered message, run as a follow-up turn
+    yield { type: 'system', subtype: 'init', session_id: newId };
+    yield { type: 'result', subtype: 'success', session_id: newId, result: 'child-ok 2', modelUsage: {} };
+  });
+
+  const outcome = await queryClaudeSDK(
+    'task',
+    { newSessionId: newId, promptUuid, cwd: process.cwd(), unattended: true, model: 'haiku' },
+    fakeWriter(),
+  );
+  assert.equal(captured.options?.sessionId, newId);
+  assert.equal(captured.options?.resume, undefined);
+  assert.equal(prompt!.uuid, promptUuid);
+  assert.deepEqual(outcome, { status: 'completed', sessionId: newId, resultText: 'child-ok 2' });
+});
+
+test('a failed run resolves with the error instead of throwing', async () => {
+  installFakeCli(async function* ({ read }) {
+    await read();
+    yield init();
+    throw new Error('cli crashed');
+  });
+  const outcome = (await queryClaudeSDK('hi', runOptions, fakeWriter())) as AnyRecord | undefined;
+  assert.equal(outcome?.status, 'error');
+  assert.equal(outcome?.sessionId, SESSION);
+});

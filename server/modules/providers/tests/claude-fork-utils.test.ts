@@ -6,7 +6,6 @@ import test from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import {
-  buildDerivedTaskPrompt,
   checkDerivedSessionGuardrails,
   extractTranscriptUuid,
   MAX_DERIVED_SESSION_DEPTH,
@@ -84,13 +83,6 @@ test('guardrails cap derived sessions per turn and nesting depth', () => {
     checkDerivedSessionGuardrails({ createdThisTurn: 0, currentDepth: MAX_DERIVED_SESSION_DEPTH }) ?? '',
     /levels deep/,
   );
-});
-
-test('buildDerivedTaskPrompt frames the task for the derived session', () => {
-  const prompt = buildDerivedTaskPrompt({ parentSessionId: PARENT, parentTitle: 'Main work', task: '  Check the tests  ' });
-  assert.match(prompt, /\[Derived session\]/);
-  assert.match(prompt, /"Main work"/);
-  assert.ok(prompt.endsWith('Check the tests'));
 });
 
 test('synchronizer records the parent from a forked transcript', async () => {
