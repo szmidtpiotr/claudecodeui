@@ -53,6 +53,7 @@ function MainContent({
   externalMessageUpdate,
   newSessionTrigger,
   onNewSession,
+  onRenameSession,
 }: MainContentProps) {
   const { preferences } = useUiPreferences();
   const { autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, autoScrollToBottom, sendByCtrlEnter, showImageThumbnails, collapseErrorResults } = preferences;
@@ -127,6 +128,7 @@ function MainContent({
         shouldShowTasksTab={shouldShowTasksTab}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
+        onRenameSession={onRenameSession}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

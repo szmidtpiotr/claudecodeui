@@ -62,6 +62,7 @@ function AppContentInner() {
     refreshProjectsSilently,
     sidebarSharedProps,
     handleNewSession,
+    renameSession,
   } = useProjectsState({
     sessionId,
     navigate,
@@ -218,6 +219,7 @@ function AppContentInner() {
           externalMessageUpdate={externalMessageUpdate}
           newSessionTrigger={newSessionTrigger}
           onNewSession={handleNewSession}
+          onRenameSession={renameSession}
         />
       </div>
 

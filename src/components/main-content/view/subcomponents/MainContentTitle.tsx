@@ -2,12 +2,15 @@ import { useTranslation } from 'react-i18next';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { AppTab, Project, ProjectSession } from '../../../../types/app';
 import { usePlugins } from '../../../../contexts/PluginsContext';
+import { useSessionTitleRename } from '../../hooks/useSessionTitleRename';
 
 type MainContentTitleProps = {
   activeTab: AppTab;
   selectedProject: Project;
   selectedSession: ProjectSession | null;
   shouldShowTasksTab: boolean;
+  /** Persists a new title for a session; resolves false when the backend refuses it. */
+  onRenameSession?: (sessionId: string, summary: string) => Promise<boolean>;
 };
 
 function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: string) => string, pluginDisplayName?: string) {
@@ -31,11 +34,14 @@ function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: st
 }
 
 function getSessionTitle(session: ProjectSession): string {
-  if (session.__provider === 'cursor') {
-    return (session.name as string) || 'Untitled Session';
+  // The sessions API carries every provider's custom name as `summary`, so read
+  // it first (as the sidebar does), or a renamed Cursor session keeps its old title.
+  const title = (session.summary as string) || (session.name as string);
+  if (title) {
+    return title;
   }
 
-  return (session.summary as string) || 'New Session';
+  return session.__provider === 'cursor' ? 'Untitled Session' : 'New Session';
 }
 
 export default function MainContentTitle({
@@ -43,6 +49,7 @@ export default function MainContentTitle({
   selectedProject,
   selectedSession,
   shouldShowTasksTab,
+  onRenameSession,
 }: MainContentTitleProps) {
   const { t } = useTranslation();
   const { plugins } = usePlugins();
@@ -53,6 +60,24 @@ export default function MainContentTitle({
 
   const showSessionIcon = activeTab === 'chat' && Boolean(selectedSession);
   const showChatNewSession = activeTab === 'chat' && !selectedSession;
+  const sessionTitle = selectedSession ? getSessionTitle(selectedSession) : '';
+
+  // Double-clicking the session title renames it in place, a second way in
+  // beside the sidebar's rename.
+  const {
+    isEditing: isRenaming,
+    draft: renameDraft,
+    isSaving: isSavingRename,
+    inputRef: renameInputRef,
+    startEditing: startRenaming,
+    updateDraft: updateRenameDraft,
+    cancelEditing: cancelRenaming,
+    handleInputKeyDown: handleRenameKeyDown,
+  } = useSessionTitleRename({
+    sessionId: onRenameSession && selectedSession ? String(selectedSession.id) : null,
+    currentTitle: sessionTitle,
+    onRenameSession: onRenameSession ?? (async () => false),
+  });
 
   return (
     <div className="scrollbar-hide flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
@@ -65,9 +90,31 @@ export default function MainContentTitle({
       <div className="min-w-0 flex-1">
         {activeTab === 'chat' && selectedSession ? (
           <div className="min-w-0">
-            <h2 className="scrollbar-hide overflow-x-auto whitespace-nowrap text-sm font-semibold leading-tight text-foreground">
-              {getSessionTitle(selectedSession)}
-            </h2>
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={renameDraft}
+                onChange={(event) => updateRenameDraft(event.target.value)}
+                onKeyDown={handleRenameKeyDown}
+                // Clicking anywhere else cancels, as the sidebar's rename does.
+                onBlur={cancelRenaming}
+                readOnly={isSavingRename}
+                aria-busy={isSavingRename}
+                aria-label={t('mainContent.renameSessionLabel')}
+                // Blur cancels, so a touch keyboard needs a key that commits.
+                enterKeyHint="done"
+                className="w-full max-w-md rounded border border-border bg-background px-1.5 py-0.5 text-sm font-semibold leading-tight text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            ) : (
+              <h2
+                title={onRenameSession ? t('mainContent.renameSessionHint', { title: sessionTitle }) : sessionTitle}
+                onDoubleClick={startRenaming}
+                className={`scrollbar-hide overflow-x-auto whitespace-nowrap text-sm font-semibold leading-tight text-foreground${onRenameSession ? ' cursor-text' : ''}`}
+              >
+                {sessionTitle}
+              </h2>
+            )}
             <div className="truncate text-[11px] leading-tight text-muted-foreground">{selectedProject.displayName}</div>
           </div>
         ) : showChatNewSession ? (

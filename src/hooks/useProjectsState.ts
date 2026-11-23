@@ -841,6 +841,21 @@ export function useProjectsState({
     }
   }, [projects, selectedProject, selectedSession]);
 
+  /**
+   * Renames a session from the chat header. The rename route does not broadcast
+   * an update, so refresh afterwards: that patches both the sidebar row and the
+   * header's `selectedSession`. Resolves false when the backend refuses it.
+   */
+  const renameSession = useCallback(async (sessionId: string, summary: string) => {
+    const response = await api.renameSession(sessionId, summary);
+    if (!response.ok) {
+      console.error('[Projects] Failed to rename session:', response.status);
+      return false;
+    }
+    await handleSidebarRefresh();
+    return true;
+  }, [handleSidebarRefresh]);
+
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
     if (!project) {
@@ -975,5 +990,6 @@ export function useProjectsState({
     loadMoreProjectSessions,
     handleProjectDelete,
     handleSidebarRefresh,
+    renameSession,
   };
 }
