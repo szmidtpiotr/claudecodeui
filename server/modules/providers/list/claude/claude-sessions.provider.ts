@@ -5,7 +5,12 @@ import readline from 'node:readline';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
-import { createNormalizedMessage, generateMessageId, readObjectRecord } from '@/shared/utils.js';
+import {
+  createNormalizedMessage,
+  generateMessageId,
+  isClaudeNonTurnMessageRow,
+  readObjectRecord,
+} from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
 
 const PROVIDER = 'claude';
@@ -52,6 +57,9 @@ async function parseAgentTools(filePath: string): Promise<AnyRecord[]> {
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
+        if (isClaudeNonTurnMessageRow(entry)) {
+          continue;
+        }
 
         if (entry.message?.role === 'assistant' && Array.isArray(entry.message?.content)) {
           for (const part of entry.message.content as AnyRecord[]) {
@@ -133,7 +141,7 @@ async function getSessionMessages(
 
       try {
         const entry = JSON.parse(line) as AnyRecord;
-        if (entry.sessionId === sessionId) {
+        if (entry.sessionId === sessionId && !isClaudeNonTurnMessageRow(entry)) {
           messages.push(entry);
         }
       } catch {
