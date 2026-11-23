@@ -70,3 +70,37 @@ test('createSession reactivates archived rows when the session becomes active ag
     assert.equal(restoredSession?.isArchived, 0);
   });
 });
+
+test('parent_session_id is stored, kept on re-sync and walked as ancestors', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('root', 'claude', '/workspace/demo-project', 'Root');
+    sessionsDb.createSession('child', 'claude', '/workspace/demo-project', 'Child', undefined, undefined, null, 'user', 'root');
+    sessionsDb.createSession('grandchild', 'claude', '/workspace/demo-project', 'Grandchild', undefined, undefined, null, 'user', 'child');
+
+    // A later upsert without a parent (e.g. a rename-only scan) keeps the stored one.
+    sessionsDb.createSession('child', 'claude', '/workspace/demo-project', 'Child renamed');
+
+    assert.equal(sessionsDb.getSessionById('child')?.parent_session_id, 'root');
+    assert.equal(sessionsDb.getSessionById('root')?.parent_session_id, null);
+    assert.deepEqual(sessionsDb.getSessionAncestorIds('grandchild'), ['child', 'root']);
+    assert.deepEqual(sessionsDb.getSessionAncestorIds('root'), []);
+    assert.deepEqual(sessionsDb.getChildSessions('root').map((row) => row.session_id), ['child']);
+
+    const page = sessionsDb.getSessionsByProjectPathPage('/workspace/demo-project', 10, 0);
+    assert.equal(page.find((row) => row.session_id === 'grandchild')?.parent_session_id, 'child');
+  });
+});
+
+test('self-references are dropped and cycles do not loop', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('self', 'claude', '/workspace/demo-project', 'Self', undefined, undefined, null, 'user', 'self');
+    assert.equal(sessionsDb.getSessionById('self')?.parent_session_id, null);
+
+    sessionsDb.createSession('a', 'claude', '/workspace/demo-project', 'A');
+    sessionsDb.createSession('b', 'claude', '/workspace/demo-project', 'B');
+    sessionsDb.setSessionParent('a', 'b');
+    sessionsDb.setSessionParent('b', 'a');
+    assert.deepEqual(sessionsDb.getSessionAncestorIds('a'), ['b']);
+    assert.deepEqual(sessionsDb.getSessionAncestorIds('a', 1), ['b']);
+  });
+});

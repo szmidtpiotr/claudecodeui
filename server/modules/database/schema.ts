@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     name_source TEXT DEFAULT NULL,
     project_path TEXT,
     jsonl_path TEXT,
+    -- The session this one was forked/derived from: the forkedFrom marker in a
+    -- Claude transcript, or a fork made through this UI. NULL otherwise.
+    parent_session_id TEXT DEFAULT NULL,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

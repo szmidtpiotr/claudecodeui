@@ -431,6 +431,18 @@ const addSessionNameSourceColumn = (db: Database): void => {
   `);
 };
 
+/**
+ * Records which session a derived (forked) session came from, so the sidebar
+ * can nest it under its parent. Existing rows stay NULL; the synchronizer
+ * fills the column from the transcript's `forkedFrom` marker on its next pass.
+ */
+const addSessionParentColumn = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'parent_session_id', 'TEXT DEFAULT NULL');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -481,11 +493,13 @@ export const runMigrations = (db: Database) => {
     ensureProjectsForSessionPaths(db);
     addProviderSessionIdMapping(db);
     addSessionNameSourceColumn(db);
+    addSessionParentColumn(db);
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_project_path ON sessions(project_path)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_is_archived ON sessions(isArchived)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id ON sessions(parent_session_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_starred ON projects(isStarred)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_projects_is_archived ON projects(isArchived)');
 
