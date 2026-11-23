@@ -5,6 +5,7 @@ import { providerMcpService } from '@/modules/providers/services/mcp.service.js'
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
+import { forkClaudeSessionById } from '@/modules/providers/services/session-fork.service.js';
 import { sessionTitleService } from '@/modules/providers/services/session-title.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
@@ -239,6 +240,15 @@ const parseTargetProjectId = (payload: unknown): string => {
   }
 
   return projectId;
+};
+
+const parseForkRequest = (payload: unknown): { upToMessageId: string | null; title: string | null } => {
+  const body = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const upToMessageId = typeof body.upToMessageId === 'string' && body.upToMessageId.trim()
+    ? body.upToMessageId.trim().slice(0, 200)
+    : null;
+  const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 500) : null;
+  return { upToMessageId, title };
 };
 
 const parseSessionRenameSummary = (payload: unknown): string => {
@@ -499,6 +509,18 @@ router.put(
     const sessionId = parseSessionId(req.params.sessionId);
     const summary = parseSessionRenameSummary(req.body);
     const result = await sessionsService.renameSessionById(sessionId, summary);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
+// Forks a Claude session into a derived session (full copy, or up to one
+// message) and records the parent so the sidebar nests it under it.
+router.post(
+  '/sessions/:sessionId/fork',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    const { upToMessageId, title } = parseForkRequest(req.body);
+    const result = await forkClaudeSessionById({ sessionId, upToMessageId, title });
     res.json(createApiSuccessResponse(result));
   }),
 );
