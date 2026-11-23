@@ -189,6 +189,24 @@ function matchesToolPermission(entry, toolName, input) {
 }
 
 /**
+ * Environment for the spawned CLI. Forwards all host env vars (e.g. ANTHROPIC_BASE_URL);
+ * since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
+ *
+ * Claude Code turns the Artifact tools off for SDK-driven sessions unless
+ * CLAUDE_CODE_ARTIFACT is set, so a session continued from this UI would lose them.
+ * Default it on; a host value (e.g. CLAUDE_CODE_ARTIFACT=0) still wins.
+ *
+ * @param {Record<string, string | undefined>} [hostEnv]
+ * @returns {Record<string, string | undefined>}
+ */
+function buildClaudeSdkEnv(hostEnv = process.env) {
+  return {
+    CLAUDE_CODE_ARTIFACT: '1',
+    ...hostEnv,
+  };
+}
+
+/**
  * Maps CLI options to SDK-compatible options format
  * @param {Object} options - CLI options
  * @returns {Object} SDK-compatible options
@@ -206,9 +224,7 @@ function mapCliOptionsToSDK(options = {}) {
 
   const sdkOptions = {};
 
-  // Forward all host env vars (e.g. ANTHROPIC_BASE_URL) to the subprocess.
-  // Since SDK 0.2.113, options.env replaces process.env instead of overlaying it.
-  sdkOptions.env = { ...process.env };
+  sdkOptions.env = buildClaudeSdkEnv();
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -998,6 +1014,7 @@ function injectBtwMessage(sessionId, content) {
 
 // Export public API
 export {
+  buildClaudeSdkEnv,
   queryClaudeSDK,
   abortClaudeSDKSession,
   injectBtwMessage,
