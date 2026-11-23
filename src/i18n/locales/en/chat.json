@@ -320,10 +320,19 @@
     "failed": "Could not fork the session: {{reason}}"
   },
   "derivedReport": {
-    "header": "Message from derived session “{{title}}”",
+    "header": "Report from derived session “{{title}}”",
+    "headerMessage": "Message from derived session “{{title}}”",
     "headerError": "Derived session “{{title}}” ended with an error",
+    "headerFromParent": "Message from parent session “{{title}}”",
+    "headerFromParentUntitled": "Message from the parent session",
     "open": "Open session",
-    "expand": "Show the report",
-    "collapse": "Hide the report"
+    "expand": "Show the message",
+    "collapse": "Hide the message"
+  },
+  "derivedTask": {
+    "startedBy": "Started by Claude from",
+    "parentFallback": "the parent session",
+    "task": "Task",
+    "context": "Context"
   }
 }

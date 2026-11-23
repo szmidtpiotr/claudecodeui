@@ -128,6 +128,10 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
   hasActivityIndicator = false,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
+  // Shown on a derived session's task card; null for an unnamed session.
+  const sessionTitle = selectedSession
+    ? String(selectedSession.summary || selectedSession.name || selectedSession.title || '') || null
+    : null;
   const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
   const allocatedKeysRef = useRef<Set<string>>(new Set());
   const generatedMessageKeyCounterRef = useRef(0);
@@ -289,6 +293,7 @@ const ChatMessagesPane = memo(function ChatMessagesPane({
                 provider={provider}
                 onForkFromMessage={onForkFromMessage}
                 onOpenSession={onOpenSession}
+                sessionTitle={sessionTitle}
               />
             );
           })}

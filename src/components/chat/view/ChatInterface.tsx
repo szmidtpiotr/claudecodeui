@@ -24,6 +24,11 @@ import PromptNavPanel from './subcomponents/PromptNavPanel';
 import CommandResultModal from './subcomponents/CommandResultModal';
 import SudoPasswordModal from './subcomponents/SudoPasswordModal';
 import { isEscapeOwnedElsewhere } from '../utils/escapeOwnership';
+import {
+  parseDerivedReportMessage,
+  parseDerivedSessionPrompt,
+  parseParentSessionMessage,
+} from '../../../../shared/derivedSessionReport';
 
 
 type PendingViewSession = {
@@ -387,7 +392,15 @@ function ChatInterface({
 
   const lastUserMessage = useMemo(() => {
     const last = userMessages[userMessages.length - 1];
-    return last ? String(last.content || '') : null;
+    if (!last) {
+      return null;
+    }
+    // Messages between parent and derived sessions pin their text, not our technical header.
+    const content = String(last.content || '');
+    return parseDerivedSessionPrompt(content)?.task
+      ?? parseDerivedReportMessage(content)?.body
+      ?? parseParentSessionMessage(content)?.body
+      ?? content;
   }, [userMessages]);
 
   // Persist user prompts across page refreshes (F5) via sessionStorage keyed by

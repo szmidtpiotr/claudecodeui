@@ -2,26 +2,37 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, ExternalLink, GitBranch } from 'lucide-react';
 
-import type { DerivedSessionReport } from '../../../../../shared/derivedSessionReport';
-
 import { Markdown } from './Markdown';
 
 type DerivedReportMessageProps = {
-  report: DerivedSessionReport;
+  /** Already-translated header, e.g. "Message from derived session “X”". */
+  label: string;
+  body: string;
+  /** The other session (child for reports/messages, parent for parent messages). */
+  sessionId: string;
+  isError?: boolean;
   formattedTime: string;
   projectId?: string;
   onOpenSession?: (sessionId: string) => void;
 };
 
 /**
- * A derived session's report, delivered into its parent as a user-role
- * message. Shown as a message from that session, not as something the user
- * typed, with a link that opens the derived session.
+ * A message between a parent and a derived session, delivered as a user-role
+ * message: a child's turn-end report, a child's explicit message to its
+ * parent, or a parent's message to a child. Shown as a message from that
+ * session, not as something the user typed, with a link that opens it.
  */
-export default function DerivedReportMessage({ report, formattedTime, projectId, onOpenSession }: DerivedReportMessageProps) {
+export default function DerivedReportMessage({
+  label,
+  body,
+  sessionId,
+  isError = false,
+  formattedTime,
+  projectId,
+  onOpenSession,
+}: DerivedReportMessageProps) {
   const { t } = useTranslation('chat');
   const [expanded, setExpanded] = useState(true);
-  const isError = report.status === 'error';
 
   return (
     <div className="w-full">
@@ -40,15 +51,13 @@ export default function DerivedReportMessage({ report, formattedTime, projectId,
             {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             <GitBranch className="h-3.5 w-3.5" />
           </button>
-          <span className="font-medium text-foreground">
-            {t(isError ? 'derivedReport.headerError' : 'derivedReport.header', { title: report.childTitle })}
-          </span>
+          <span className="font-medium text-foreground">{label}</span>
           {onOpenSession && (
             <button
               type="button"
-              onClick={() => onOpenSession(report.childSessionId)}
+              onClick={() => onOpenSession(sessionId)}
               className="inline-flex items-center gap-1 text-violet-700 underline-offset-2 hover:underline dark:text-violet-300"
-              title={report.childSessionId}
+              title={sessionId}
             >
               <ExternalLink className="h-3 w-3" />
               {t('derivedReport.open')}
@@ -56,10 +65,10 @@ export default function DerivedReportMessage({ report, formattedTime, projectId,
           )}
           <span className="ml-auto text-muted-foreground">{formattedTime}</span>
         </div>
-        {expanded && report.body.trim() && (
+        {expanded && body.trim() && (
           <div className="mt-2 text-sm">
             <Markdown projectId={projectId} className="prose prose-sm prose-gray max-w-none dark:prose-invert">
-              {report.body}
+              {body}
             </Markdown>
           </div>
         )}

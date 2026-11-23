@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, GitFork } from 'lucide-react';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
@@ -18,8 +18,13 @@ import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
 import ImageLightbox from './ImageLightbox';
 import { buildFileUrl, parseUserContentForImages } from '../../utils/imageUrls';
-import { parseDerivedReportMessage } from '../../../../../shared/derivedSessionReport';
+import {
+  parseDerivedReportMessage,
+  parseDerivedSessionPrompt,
+  parseParentSessionMessage,
+} from '../../../../../shared/derivedSessionReport';
 import DerivedReportMessage from './DerivedReportMessage';
+import DerivedTaskMessage from './DerivedTaskMessage';
 
 type DiffLine = {
   type: string;
@@ -46,6 +51,8 @@ type MessageComponentProps = {
   onForkFromMessage?: (message: ChatMessage) => void;
   /** Opens another session (the derived session a report came from). */
   onOpenSession?: (sessionId: string) => void;
+  /** Title of the open session (shown on a derived session's task card). */
+  sessionTitle?: string | null;
 };
 
 type InteractiveOption = {
@@ -57,7 +64,7 @@ type InteractiveOption = {
 type PermissionGrantState = 'idle' | 'granted' | 'error';
 const COPY_HIDDEN_TOOL_NAMES = new Set(['Bash', 'Edit', 'Write', 'ApplyPatch']);
 
-const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, collapseErrorResults = false, selectedProject, provider, onForkFromMessage, onOpenSession }: MessageComponentProps) => {
+const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, onShowSettings, onGrantToolPermission, autoExpandTools, collapseToolsByDefault, showRawParameters, showThinking, showCompactSummaries, showImageThumbnails = true, collapseErrorResults = false, selectedProject, provider, onForkFromMessage, onOpenSession, sessionTitle }: MessageComponentProps) => {
   const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
     ((prevMessage.type === 'assistant') ||
@@ -132,24 +139,83 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
   const [compactExpanded, setCompactExpanded] = useState(false);
   // A derived session's report arrives as a user-role message; it is shown as
   // a message from that session, with a link to it.
-  const derivedReport = useMemo(
-    () => (message.type === 'user' ? parseDerivedReportMessage(String(message.content || '')) : null),
-    [message.type, message.content],
-  );
+  // Messages between a parent and its derived sessions also arrive as
+  // user-role messages; each gets its own card instead of a user bubble.
+  const sessionLink = useMemo(() => {
+    if (message.type !== 'user') {
+      return null;
+    }
+    const content = String(message.content || '');
+    const report = parseDerivedReportMessage(content);
+    if (report) {
+      return { kind: 'child' as const, report };
+    }
+    const fromParent = parseParentSessionMessage(content);
+    if (fromParent) {
+      return { kind: 'parent' as const, fromParent };
+    }
+    const task = parseDerivedSessionPrompt(content);
+    if (task) {
+      const trimmed = content.trimStart();
+      const split = trimmed.indexOf('\n\n');
+      return { kind: 'task' as const, task, context: split >= 0 ? trimmed.slice(0, split) : trimmed };
+    }
+    return null;
+  }, [message.type, message.content]);
 
   if (shouldHideThinkingMessage) {
     return null;
   }
 
-  if (derivedReport) {
-    return (
-      <div ref={messageRef} data-message-timestamp={message.timestamp || undefined} className="chat-message derived-report px-3 sm:px-0">
+  if (sessionLink) {
+    let card: ReactNode;
+    if (sessionLink.kind === 'child') {
+      const { report } = sessionLink;
+      const labelKey = report.status === 'error'
+        ? 'derivedReport.headerError'
+        : report.kind === 'message' ? 'derivedReport.headerMessage' : 'derivedReport.header';
+      card = (
         <DerivedReportMessage
-          report={derivedReport}
+          label={t(labelKey, { title: report.childTitle })}
+          body={report.body}
+          sessionId={report.childSessionId}
+          isError={report.status === 'error'}
           formattedTime={formattedTime}
           projectId={selectedProject?.projectId}
           onOpenSession={onOpenSession}
         />
+      );
+    } else if (sessionLink.kind === 'parent') {
+      const { fromParent } = sessionLink;
+      card = (
+        <DerivedReportMessage
+          label={fromParent.parentTitle
+            ? t('derivedReport.headerFromParent', { title: fromParent.parentTitle })
+            : t('derivedReport.headerFromParentUntitled')}
+          body={fromParent.body}
+          sessionId={fromParent.parentSessionId}
+          formattedTime={formattedTime}
+          projectId={selectedProject?.projectId}
+          onOpenSession={onOpenSession}
+        />
+      );
+    } else {
+      const parentSession = selectedProject?.sessions?.find((session) => session.id === sessionLink.task.parentSessionId);
+      card = (
+        <DerivedTaskMessage
+          task={sessionLink.task}
+          context={sessionLink.context}
+          sessionTitle={sessionTitle}
+          fallbackParentTitle={parentSession ? String(parentSession.summary || parentSession.name || parentSession.title || '') || null : null}
+          formattedTime={formattedTime}
+          projectId={selectedProject?.projectId}
+          onOpenSession={onOpenSession}
+        />
+      );
+    }
+    return (
+      <div ref={messageRef} data-message-timestamp={message.timestamp || undefined} className="chat-message derived-report px-3 sm:px-0">
+        {card}
       </div>
     );
   }
