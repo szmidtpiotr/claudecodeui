@@ -224,7 +224,7 @@ export function useSteeredMessages({
    * Sends `content` into the running turn of the current session. Shown as
    * pending at once; the server's answer decides what happens next.
    */
-  const steer = useCallback((content: string) => {
+  const steer = useCallback((content: string, images?: unknown[]) => {
     if (!sessionId) {
       return false;
     }
@@ -232,7 +232,15 @@ export function useSteeredMessages({
     ownIdsRef.current.add(messageId);
     writeOwnSteerIds([...ownIdsRef.current]);
     setPendingSteers((previous) => [...previous, { messageId, content }]);
-    sendMessage({ type: 'claude-steer', sessionId, messageId, command: content });
+    sendMessage({
+      type: 'claude-steer',
+      sessionId,
+      messageId,
+      command: content,
+      // Uploaded images travel along; the server saves them and appends their
+      // paths to the text, as an ordinary send does.
+      ...(images && images.length > 0 ? { images } : {}),
+    });
     return true;
   }, [sendMessage, sessionId]);
 

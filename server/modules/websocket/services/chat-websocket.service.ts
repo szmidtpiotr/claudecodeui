@@ -64,6 +64,12 @@ type ChatWebSocketDependencies = {
   isAzureSessionActive: (sessionId: string) => boolean;
   reconnectSessionWriter: (sessionId: string, ws: WebSocket) => boolean;
   getPendingApprovalsForSession: (sessionId: string) => unknown[];
+  steerClaudeSDKSessionWithImages?: (
+    sessionId: string,
+    messageId: string,
+    content: string,
+    images: unknown[]
+  ) => Promise<{ ok: boolean; reason?: string; content: string }>;
   steerClaudeSDKSession?: (
     sessionId: string,
     messageId: string,
@@ -126,11 +132,11 @@ type SteerReplyWriter = { send: (data: unknown) => void };
  * The message id is the sender's: the CLI echoes it back when Claude reads the
  * message and history stores it under it, so it must be a UUID.
  */
-export function handleSteerRequest(
+export async function handleSteerRequest(
   data: AnyRecord,
   writer: SteerReplyWriter,
-  dependencies: Pick<ChatWebSocketDependencies, 'steerClaudeSDKSession'>
-): void {
+  dependencies: Pick<ChatWebSocketDependencies, 'steerClaudeSDKSession' | 'steerClaudeSDKSessionWithImages'>
+): Promise<void> {
   const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
   const rawContent = typeof data.command === 'string' ? data.command : data.content;
   const content = typeof rawContent === 'string' ? rawContent.trim() : '';
@@ -141,9 +147,21 @@ export function handleSteerRequest(
     return;
   }
 
-  const result = sessionId && dependencies.steerClaudeSDKSession
-    ? dependencies.steerClaudeSDKSession(sessionId, messageId, content)
-    : { ok: false, reason: 'no_active_turn' };
+  const images = Array.isArray(data.images) ? data.images : [];
+  let deliveredContent = content;
+  let result: { ok: boolean; reason?: string };
+  if (!sessionId) {
+    result = { ok: false, reason: 'no_active_turn' };
+  } else if (images.length > 0 && dependencies.steerClaudeSDKSessionWithImages) {
+    // Images ride along as saved files whose paths are appended to the text.
+    const steered = await dependencies.steerClaudeSDKSessionWithImages(sessionId, messageId, content, images);
+    deliveredContent = steered.content || content;
+    result = steered;
+  } else if (dependencies.steerClaudeSDKSession) {
+    result = dependencies.steerClaudeSDKSession(sessionId, messageId, content);
+  } else {
+    result = { ok: false, reason: 'no_active_turn' };
+  }
 
   writer.send({
     type: 'steer-status',
@@ -151,7 +169,7 @@ export function handleSteerRequest(
     ...(result.ok ? {} : { reason: result.reason || 'no_active_turn' }),
     sessionId,
     messageId,
-    content,
+    content: deliveredContent,
   });
 }
 
@@ -270,7 +288,7 @@ export function handleChatConnection(
       // ("steering"): Claude reads it at its next tool-call boundary. `btw-inject`
       // is the older `/btw` wire name for the same thing.
       if (messageType === 'claude-steer' || messageType === 'btw-inject') {
-        handleSteerRequest(data, writer, dependencies);
+        void handleSteerRequest(data, writer, dependencies);
         return;
       }
 

@@ -960,15 +960,40 @@ export function useChatComposerState({
       }
 
       // A Claude turn is running: deliver the message into it. Claude reads it
-      // at its next tool call; the pending card shows it until then. Images and
-      // slash commands cannot ride along (the CLI input takes plain text, and a
-      // command has to run as a command), so those wait in the queue below.
-      if (canSteer && !submitOptions?.queueOnly && attachedImages.length === 0) {
+      // at its next tool call; the pending card shows it until then. Images are
+      // uploaded first and travel as saved files whose paths the server appends
+      // to the text. Slash commands cannot ride along (a command has to run as a
+      // command), so those wait in the queue below.
+      if (canSteer && !submitOptions?.queueOnly) {
         const trimmed = currentInput.trim();
         const firstToken = trimmed.split(/\s/, 1)[0];
         const isSlashCommand = trimmed.startsWith('/')
           && (firstToken === '/help' || slashCommands.some((cmd: SlashCommand) => cmd.name === firstToken));
-        if (!isSlashCommand && steer(trimmed)) {
+        let steerImages: unknown[] = [];
+        let imageUploadFailed = false;
+        if (!isSlashCommand && attachedImages.length > 0) {
+          try {
+            const formData = new FormData();
+            attachedImages.forEach((file) => formData.append('images', file));
+            const response = await authenticatedFetch('/api/assets/images', {
+              method: 'POST',
+              headers: {},
+              body: formData,
+            });
+            if (!response.ok) {
+              throw new Error('upload failed');
+            }
+            steerImages = (await response.json()).images || [];
+          } catch (error) {
+            // Fall through to the queue below, which retries the upload later.
+            console.error('Image upload for a steered message failed:', error);
+            imageUploadFailed = true;
+          }
+        }
+        if (!isSlashCommand && !imageUploadFailed && steer(trimmed, steerImages)) {
+          setAttachedImages([]);
+          setUploadingImages(new Map());
+          setImageErrors(new Map());
           // The stop button's "nothing answered yet, restore the prompt" guess
           // would otherwise pull a stale prompt back after a steer.
           lastSubmittedInputRef.current = '';

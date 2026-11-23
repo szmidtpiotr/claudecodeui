@@ -1245,7 +1245,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Track the query instance and push channel for abort + steering
-    const sessionExtras = { backgroundTaskCount: () => backgroundTasks.size() };
+    const sessionExtras = { backgroundTaskCount: () => backgroundTasks.size(), cwd: options.cwd || null };
     if (capturedSessionId) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer, sessionExtras);
     }
@@ -1606,6 +1606,29 @@ function steerClaudeSDKSession(sessionId, messageId, content) {
 }
 
 /**
+ * Steers a message that carries images: the images are saved the same way an
+ * ordinary send saves them (temp-img/ in the run's working directory) and their
+ * paths are appended to the text, which is what the CLI input can carry.
+ * @param {string} sessionId
+ * @param {string} messageId
+ * @param {string} content
+ * @param {Array<{data: string}>} images - data-URL images, as an ordinary send uploads them
+ * @returns {Promise<{ ok: boolean, reason?: string, content: string }>}
+ */
+async function steerClaudeSDKSessionWithImages(sessionId, messageId, content, images) {
+  const session = getSession(sessionId);
+  if (!session || session.status !== 'active' || !session.steer) {
+    return { ok: false, reason: 'no_active_turn', content };
+  }
+  let finalContent = content;
+  if (Array.isArray(images) && images.length > 0) {
+    const { modifiedCommand } = await handleImages(content, images, session.cwd || undefined);
+    finalContent = modifiedCommand || content;
+  }
+  return { ...steerClaudeSDKSession(sessionId, messageId, finalContent), content: finalContent };
+}
+
+/**
  * Steered messages a session's running turn has not read yet, so a tab that
  * opens (or reloads) mid-run can show them as pending.
  * @param {string} sessionId
@@ -1654,6 +1677,7 @@ export {
   abortClaudeSDKSession,
   injectBtwMessage,
   steerClaudeSDKSession,
+  steerClaudeSDKSessionWithImages,
   listPendingSteers,
   createSteerTracker,
   createPushChannel,

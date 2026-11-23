@@ -353,3 +353,30 @@ test('a failed run resolves with the error instead of throwing', async () => {
   assert.equal(outcome?.status, 'error');
   assert.equal(outcome?.sessionId, SESSION);
 });
+
+test('a steered message with images gets their saved paths appended', async () => {
+  const sent: AnyRecord[] = [];
+  const received: Array<{ messageId: string; content: string; images: unknown[] }> = [];
+  await handleSteerRequest(
+    { sessionId: 'img-session', messageId: crypto.randomUUID(), command: 'look at this', images: [{ data: 'data:image/png;base64,AAAA' }] },
+    { send: (message: unknown) => { sent.push(message as AnyRecord); } },
+    {
+      steerClaudeSDKSessionWithImages: async (_sessionId, messageId, content, images) => {
+        received.push({ messageId, content, images });
+        return { ok: true, content: `${content}\n\n[Images provided at the following paths:]\n1. /tmp/x/image_0.png` };
+      },
+      steerClaudeSDKSession: () => ({ ok: false, reason: 'should not be used' }),
+    },
+  );
+  assert.equal(received.length, 1);
+  assert.equal(received[0].images.length, 1);
+  assert.equal(sent[0].state, 'pending');
+  assert.match(sent[0].content, /\[Images provided at the following paths:\]/);
+});
+
+test('steering with images into a session with no live run is refused', async () => {
+  const { steerClaudeSDKSessionWithImages } = await import('./claude-sdk.js');
+  const result = await steerClaudeSDKSessionWithImages('no-such-session', crypto.randomUUID(), 'hi', [{ data: 'data:image/png;base64,AAAA' }]);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'no_active_turn');
+});
