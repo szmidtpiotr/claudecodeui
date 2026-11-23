@@ -277,7 +277,7 @@ app.post('/api/system/update', authenticateToken, parseAuthenticatedBody, async 
         // In platform, husky and dev dependencies are not needed
             ? 'npm run update:platform'
             : installMode === 'git'
-                ? 'git checkout main && git pull && npm install'
+                ? 'git pull --ff-only && NODE_ENV=development npm install --include=dev && npm run build'
                 : 'npm install -g @cloudcli-ai/cloudcli@latest';
 
         const updateCwd = IS_PLATFORM || installMode === 'git'

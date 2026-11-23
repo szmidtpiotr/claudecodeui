@@ -30,7 +30,7 @@ export function VersionUpgradeModal({
         ? t('versionUpdate.npmUpgradeCommand')
         : IS_PLATFORM
             ? 'npm run update:platform'
-            : 'git checkout main && git pull && npm install';
+            : 'git pull --ff-only && NODE_ENV=development npm install --include=dev && npm run build';
     const [isUpdating, setIsUpdating] = useState(false);
     const [updateOutput, setUpdateOutput] = useState('');
     const [updateError, setUpdateError] = useState('');
