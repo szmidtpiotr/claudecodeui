@@ -202,6 +202,7 @@ function matchesToolPermission(entry, toolName, input) {
 function buildClaudeSdkEnv(hostEnv = process.env) {
   return {
     CLAUDE_CODE_ARTIFACT: '1',
+    CLAUDE_CODE_ENTRYPOINT: 'claudecodeui',
     ...hostEnv,
   };
 }
