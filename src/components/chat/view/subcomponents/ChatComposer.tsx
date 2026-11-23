@@ -266,6 +266,20 @@ const ChatComposer = memo(function ChatComposer({
         />
       )}
 
+      {/* The question panel replaces the input, but how to answer often depends on
+          how much context is left, so token and context usage stay visible below it. */}
+      {hasQuestionPanel && (
+        <div className="mx-auto flex max-w-4xl items-center justify-end gap-2">
+          <TokenUsageSummary usage={tokenBudget} />
+          <ContextUsagePill
+            used={(tokenBudget?.used as number) || 0}
+            total={(tokenBudget?.total as number) || parseInt(import.meta.env.VITE_CONTEXT_WINDOW) || 160000}
+            provider={provider as string}
+            onOpenSettings={onOpenSettings}
+          />
+        </div>
+      )}
+
       {!hasQuestionPanel && <div className="relative mx-auto max-w-4xl">
         {queuedPrompt && (
           <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-xs text-amber-800 shadow-sm backdrop-blur-md dark:border-amber-600/40 dark:bg-amber-900/15 dark:text-amber-200">
