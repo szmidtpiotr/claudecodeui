@@ -36,7 +36,7 @@ const MODEL_PRICING: Array<{ pattern: RegExp; pricing: PricingEntry }> = [
   { pattern: /^claude-fable-5(?![\d-])/, pricing: { input: '$5',    output: '$25',  usageFactor: '~2× limits' } },
   { pattern: /^claude-opus-4/,           pricing: { input: '$5',    output: '$25',  usageFactor: '1× limits' } },
   { pattern: /^claude-sonnet-4/,         pricing: { input: '$3',    output: '$15',  usageFactor: '0.5× limits' } },
-  { pattern: /^claude-haiku-4/,          pricing: { input: '$0.80', output: '$4',   usageFactor: '0.25× limits' } },
+  { pattern: /^claude-haiku-4/,          pricing: { input: '$1',    output: '$5',   usageFactor: '0.25× limits' } },
   { pattern: /^claude-fable/,            pricing: { usageFactor: '~2× limits' } },
   { pattern: /^claude-opus/,             pricing: { usageFactor: '1× limits' } },
   { pattern: /^claude-sonnet/,           pricing: { usageFactor: '0.5× limits' } },
@@ -74,6 +74,27 @@ function buildModelDescription(
  */
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
+/**
+ * The effort Claude Code itself uses for each pinned version when none is sent.
+ * The models endpoint reports which levels a model accepts but not its default, so
+ * without this table every version would start at `high`. Versions missing here keep
+ * the `high` fallback.
+ */
+const CLAUDE_CODE_DEFAULT_EFFORT: Record<string, string> = {
+  'claude-fable-5-2': 'medium',
+  'claude-fable-5-1': 'high',
+  'claude-fable-5': 'high',
+  'claude-opus-5-5': 'medium',
+  'claude-opus-5': 'high',
+  'claude-opus-4-8': 'high',
+  'claude-opus-4-7': 'xhigh',
+  'claude-opus-4-6': 'high',
+  'claude-sonnet-5-5': 'medium',
+  'claude-sonnet-5': 'high',
+  'claude-sonnet-4-6': 'high',
+  'claude-haiku-5-5': 'medium',
+};
+
 type ClaudeApiModelCapability = { supported?: boolean } | undefined;
 
 type ClaudeApiModel = {
@@ -89,7 +110,10 @@ type ClaudeApiModel = {
  * Translates the model endpoint's `capabilities.effort` block into the picker's
  * effort shape. Older models report `supported: false` and get no effort control.
  */
-function buildModelEffort(model: ClaudeApiModel): ProviderModelOption['effort'] | undefined {
+function buildModelEffort(
+  model: ClaudeApiModel,
+  { useClaudeCodeDefault = true }: { useClaudeCodeDefault?: boolean } = {},
+): ProviderModelOption['effort'] | undefined {
   const effort = model.capabilities?.effort;
   if (!effort || effort.supported !== true) {
     return undefined;
@@ -106,14 +130,18 @@ function buildModelEffort(model: ClaudeApiModel): ProviderModelOption['effort'] 
     return undefined;
   }
 
-  const preferred = values.some((entry) => entry.value === 'high')
-    ? 'high'
-    : values[values.length - 1].value;
+  const claudeCodeDefault = useClaudeCodeDefault ? CLAUDE_CODE_DEFAULT_EFFORT[model.id] : undefined;
+  const preferred = claudeCodeDefault && values.some((entry) => entry.value === claudeCodeDefault)
+    ? claudeCodeDefault
+    : values.some((entry) => entry.value === 'high')
+      ? 'high'
+      : values[values.length - 1].value;
 
   return { default: preferred, values };
 }
 
-function buildModelsDefinition(
+/** Exported for tests. */
+export function buildModelsDefinition(
   apiModels: ClaudeApiModel[],
   authType?: 'api_key' | 'oauth',
 ): ProviderModelsDefinition {
@@ -125,8 +153,11 @@ function buildModelsDefinition(
       value: 'default',
       label: 'Default (recommended)',
       description: defaultDesc,
-      // `default` resolves to the newest model, so it inherits that model's effort range.
-      ...(apiModels[0] ? { effort: buildModelEffort(apiModels[0]) } : {}),
+      // `default` resolves to the newest model, so it inherits that model's effort range,
+      // but keeps starting at `high` as before rather than that model's own default.
+      ...(apiModels[0]
+        ? { effort: buildModelEffort(apiModels[0], { useClaudeCodeDefault: false }) }
+        : {}),
     },
     ...apiModels.map((m) => ({
       value: m.id,
@@ -164,12 +195,60 @@ async function fetchDynamicModels(): Promise<ProviderModelsDefinition | null> {
   }
 }
 
+const EFFORT_LEVELS_WITH_XHIGH = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// Opus 4.6 and Sonnet 4.6 predate the xhigh level; Claude Code rejects it for them.
+const EFFORT_LEVELS_WITHOUT_XHIGH = ['low', 'medium', 'high', 'max'] as const;
+
+/** One pinned version's effort control. Arrays are built per call so options never share them. */
+const buildPinnedModelEffort = (
+  modelId: string,
+  levels: readonly string[],
+): NonNullable<ProviderModelOption['effort']> => ({
+  default: CLAUDE_CODE_DEFAULT_EFFORT[modelId] ?? 'high',
+  values: levels.map((value) => ({ value })),
+});
+
+const pinnedModel = (
+  value: string,
+  label: string,
+  levels: readonly string[] | null,
+  note = '',
+): ProviderModelOption => ({
+  value,
+  label,
+  description: `Pinned to ${label}${note}.`,
+  ...(levels ? { effort: buildPinnedModelEffort(value, levels) } : {}),
+});
+
+/**
+ * Exact model versions, listed after the aliases in the fallback catalog. An alias such
+ * as `opus` follows whichever release is newest; these stay on one release. The set
+ * matches the versions Claude Code's own model picker offers. The live catalog gets the
+ * same versions straight from the models endpoint.
+ */
+const CLAUDE_PINNED_MODEL_OPTIONS: ProviderModelOption[] = [
+  pinnedModel('claude-fable-5-2', 'Fable 5.2', EFFORT_LEVELS_WITH_XHIGH, ', the current Fable release'),
+  pinnedModel('claude-fable-5-1', 'Fable 5.1', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-fable-5', 'Fable 5', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-opus-5-5', 'Opus 5.5', EFFORT_LEVELS_WITH_XHIGH, ', the current Opus release'),
+  pinnedModel('claude-opus-5', 'Opus 5', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-opus-4-8', 'Opus 4.8', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-opus-4-7', 'Opus 4.7', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-opus-4-6', 'Opus 4.6', EFFORT_LEVELS_WITHOUT_XHIGH),
+  pinnedModel('claude-sonnet-5-5', 'Sonnet 5.5', EFFORT_LEVELS_WITH_XHIGH, ', the current Sonnet release'),
+  pinnedModel('claude-sonnet-5', 'Sonnet 5', EFFORT_LEVELS_WITH_XHIGH),
+  pinnedModel('claude-sonnet-4-6', 'Sonnet 4.6', EFFORT_LEVELS_WITHOUT_XHIGH),
+  pinnedModel('claude-haiku-5-5', 'Haiku 5.5', EFFORT_LEVELS_WITH_XHIGH, ', the current Haiku release'),
+  // Claude Code's picker sends the dated id for this release, so the catalog does too.
+  pinnedModel('claude-haiku-4-5-20251001', 'Haiku 4.5', null, '. Has no effort control'),
+];
+
 export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     {
       value: 'default',
       label: 'Default (recommended)',
-      description: 'Opus 4.8 with 1M context · Best for everyday, complex tasks',
+      description: 'Recommended model for your account · 1M ctx',
       effort: {
         default: 'high',
         values: [
@@ -183,7 +262,7 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     {
       value: 'fable',
       label: 'Fable',
-      description: 'Fable 5 · Most capable for hardest tasks · Uses limits ~2× faster than Opus',
+      description: 'Latest Fable · Most capable for hardest tasks · Uses limits ~2× faster than Opus',
       effort: {
         default: 'high',
         values: [
@@ -197,8 +276,8 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'opus',
-      label: 'Opus 4.8',
-      description: 'Most capable · $5/$25 per Mtok',
+      label: 'Opus',
+      description: 'Latest Opus · Complex reasoning and coding · 1× limits',
       effort: {
         default: 'high',
         values: [
@@ -212,26 +291,52 @@ export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
     },
     {
       value: 'sonnet',
-      label: 'Sonnet 5',
-      description: 'Efficient for routine tasks · $3/$15 per Mtok',
+      label: 'Sonnet',
+      description: 'Latest Sonnet · Efficient for routine tasks · 0.5× limits',
       effort: {
         default: 'high',
         values: [
           { value: 'low' },
           { value: 'medium' },
           { value: 'high' },
+          { value: 'xhigh' },
           { value: 'max' },
         ],
       },
     },
     {
       value: 'haiku',
-      label: 'Haiku 4.5',
-      description: 'Fastest for quick answers · $1/$5 per Mtok',
+      label: 'Haiku',
+      description: 'Latest Haiku · Fastest for quick answers · 0.25× limits',
+      // `medium` is the level Claude Code already runs Haiku at when none is sent.
+      effort: {
+        default: 'medium',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
     },
+    ...CLAUDE_PINNED_MODEL_OPTIONS,
   ],
   DEFAULT: 'default',
   fallback: true,
+};
+
+/**
+ * Looks a model id up in the fallback catalog, which is the one list that is always
+ * available without a network call. Exported for tests.
+ */
+export const findClaudeModelOption = (model: string | undefined | null): ProviderModelOption | null => {
+  const normalizedModel = typeof model === 'string' ? model.trim() : '';
+  if (!normalizedModel) {
+    return null;
+  }
+
+  return CLAUDE_FALLBACK_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
 type ClaudeInitEvent = {
   sessionId?: string;

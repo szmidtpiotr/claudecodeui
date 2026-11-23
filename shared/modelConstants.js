@@ -13,11 +13,11 @@
 export const CLAUDE_MODELS = {
   // Models in SDK shorthand format (what claude CLI --model flag accepts)
   OPTIONS: [
-    { value: "default", label: "Default (recommended)", description: "Opus 4.8 with 1M context · Best for everyday, complex tasks" },
-    { value: "fable", label: "Fable", description: "Fable 5 · Most capable for hardest tasks · Uses limits ~2× faster than Opus" },
-    { value: "opus", label: "Opus 4.8", description: "Most capable · $5/$25 per Mtok" },
-    { value: "sonnet", label: "Sonnet 4.6", description: "Efficient for routine tasks · $3/$15 per Mtok" },
-    { value: "haiku", label: "Haiku 4.5", description: "Fastest for quick answers · $1/$5 per Mtok" },
+    { value: "default", label: "Default (recommended)", description: "Recommended model for your account · 1M ctx" },
+    { value: "fable", label: "Fable", description: "Latest Fable · Most capable for hardest tasks · Uses limits ~2× faster than Opus" },
+    { value: "opus", label: "Opus", description: "Latest Opus · Complex reasoning and coding · 1× limits" },
+    { value: "sonnet", label: "Sonnet", description: "Latest Sonnet · Efficient for routine tasks · 0.5× limits" },
+    { value: "haiku", label: "Haiku", description: "Latest Haiku · Fastest for quick answers · 0.25× limits" },
   ],
 
   DEFAULT: "default",
