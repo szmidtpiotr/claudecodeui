@@ -4,8 +4,12 @@ import { ShieldAlertIcon } from 'lucide-react';
 import type { PendingPermissionRequest } from '../../types/types';
 import { buildClaudeToolPermissionEntry, formatToolInputForDisplay } from '../../utils/chatPermissions';
 import { getClaudeSettings } from '../../utils/chatStorage';
-import { getPermissionPanel, registerPermissionPanel } from '../../tools/configs/permissionPanelRegistry';
-import { AskUserQuestionPanel } from '../../tools/components/InteractiveRenderers';
+import {
+  getPermissionPanel,
+  registerPermissionPanel,
+  MCP_ELICITATION_TOOL_NAME,
+} from '../../tools/configs/permissionPanelRegistry';
+import { AskUserQuestionPanel, McpElicitationPanel } from '../../tools/components/InteractiveRenderers';
 import {
   Confirmation,
   ConfirmationTitle,
@@ -15,6 +19,7 @@ import {
 } from '../../../../shared/view/ui';
 
 registerPermissionPanel('AskUserQuestion', AskUserQuestionPanel);
+registerPermissionPanel(MCP_ELICITATION_TOOL_NAME, McpElicitationPanel);
 
 interface PermissionRequestsBannerProps {
   pendingPermissionRequests: PendingPermissionRequest[];
