@@ -12,6 +12,7 @@
  * - WebSocket message streaming
  */
 
+import { spawn } from 'child_process';
 import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -147,6 +148,149 @@ function createSteerTracker() {
       pending.clear();
       return list;
     },
+  };
+}
+
+// Background work (Agent / Bash `run_in_background`, workflows) keeps the CLI's
+// input open after the turn's `result`. Closing stdin is what lets the CLI wind
+// down: in print mode it then waits for background tasks for at most
+// CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS (default 600000 = 10 min, counted from
+// the first idle moment after stdin closed) and kills whatever is still running.
+// So while the run has background tasks we do not close it; this cap only
+// bounds a CLI whose task list never empties.
+const DEFAULT_BACKGROUND_HOLD_MAX_MS = 6 * 60 * 60 * 1000;
+// After the last background task ends, the CLI runs its task-notification as a
+// follow-up turn within a second or two. The run waits this long for that turn
+// to start before closing the input (a task that ends without a notification
+// must not leave the run "processing").
+const DEFAULT_BACKGROUND_NOTIFICATION_GRACE_MS = 10 * 1000;
+const backgroundHoldLimits = {
+  maxMs: parseInt(process.env.CLAUDE_BACKGROUND_HOLD_MAX_MS, 10) || DEFAULT_BACKGROUND_HOLD_MAX_MS,
+  notificationGraceMs: DEFAULT_BACKGROUND_NOTIFICATION_GRACE_MS,
+};
+
+// Task states after which a background task no longer runs.
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'error']);
+
+/**
+ * The CLI's background tasks for one run, kept from its stream:
+ * `background_tasks_changed` carries the full current list (authoritative);
+ * `task_started` adds one, and a terminal `task_updated` / `task_notification`
+ * removes one, in case a list update is missed.
+ *
+ * @returns {{
+ *   observe: (message: any) => { changed: boolean, ended: number },
+ *   size: () => number,
+ *   ids: () => string[],
+ * }}
+ */
+function createBackgroundTaskTracker() {
+  const tasks = new Map();
+
+  const remove = (taskId) => (taskId && tasks.delete(taskId) ? 1 : 0);
+
+  return {
+    observe(message) {
+      if (!message || message.type !== 'system') {
+        return { changed: false, ended: 0 };
+      }
+      const before = tasks.size;
+      let ended = 0;
+      if (message.subtype === 'background_tasks_changed' && Array.isArray(message.tasks)) {
+        const next = new Map();
+        for (const task of message.tasks) {
+          if (task && typeof task.task_id === 'string') {
+            next.set(task.task_id, task);
+          }
+        }
+        for (const taskId of tasks.keys()) {
+          if (!next.has(taskId)) {
+            ended += 1;
+          }
+        }
+        const added = [...next.keys()].some((taskId) => !tasks.has(taskId));
+        tasks.clear();
+        for (const [taskId, task] of next) {
+          tasks.set(taskId, task);
+        }
+        return { changed: added || ended > 0, ended };
+      }
+      if (message.subtype === 'task_started' && typeof message.task_id === 'string') {
+        if (!tasks.has(message.task_id)) {
+          tasks.set(message.task_id, { task_id: message.task_id, task_type: message.task_type });
+        }
+        return { changed: tasks.size !== before, ended: 0 };
+      }
+      const status = message.subtype === 'task_updated'
+        ? message.patch?.status
+        : message.subtype === 'task_notification' ? message.status : undefined;
+      if (typeof status === 'string' && TERMINAL_TASK_STATUSES.has(status)) {
+        ended = remove(message.task_id);
+        return { changed: ended > 0, ended };
+      }
+      return { changed: false, ended: 0 };
+    },
+    size() {
+      return tasks.size;
+    },
+    ids() {
+      return [...tasks.keys()];
+    },
+  };
+}
+
+/**
+ * Messages that mean the CLI is working on a turn (as opposed to idling
+ * between turns while background tasks run).
+ */
+function isTurnActivity(message) {
+  if (!message) return false;
+  if (message.type === 'assistant' || message.type === 'stream_event') return true;
+  if (message.type === 'user') return message.isReplay !== true;
+  if (message.type === 'system') {
+    return message.subtype === 'init' || message.subtype === 'thinking_tokens';
+  }
+  return false;
+}
+
+/**
+ * Spawns the CLI exactly as the SDK's default does, and logs every exit so a
+ * cut-off run is visible in the journal.
+ * @param {() => { sessionId: string | null, reason: string }} describe
+ */
+function createLoggedClaudeSpawn(describe) {
+  return (spawnOptions) => {
+    const { command, args, cwd, env, signal } = spawnOptions;
+    const debugStderr = Boolean(env?.DEBUG_CLAUDE_AGENT_SDK);
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ['pipe', 'pipe', debugStderr ? 'pipe' : 'ignore'],
+      signal,
+      env,
+      windowsHide: true,
+    });
+    if (debugStderr) {
+      child.stderr?.on('data', (chunk) => process.stderr.write(chunk));
+    }
+    child.on('error', (error) => {
+      if (error?.name !== 'AbortError') {
+        console.warn(`[Claude SDK] CLI process error: ${error?.message || error}`);
+      }
+    });
+    child.once('exit', (code, exitSignal) => {
+      const { sessionId, reason } = describe();
+      console.log(`[Claude SDK] CLI exited (code=${code}, signal=${exitSignal}, reason=${reason}) session=${sessionId || 'NEW'} pid=${child.pid}`);
+    });
+    return {
+      stdin: child.stdin,
+      stdout: child.stdout,
+      get killed() { return child.killed; },
+      get exitCode() { return child.exitCode; },
+      kill: child.kill.bind(child),
+      on: child.on.bind(child),
+      once: child.once.bind(child),
+      off: child.off.bind(child),
+    };
   };
 }
 
@@ -448,8 +592,10 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Array<string>} tempImagePaths - Temp image file paths for cleanup
  * @param {string} tempDir - Temp directory for cleanup
  */
-function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null, pushChannel = null, steer = null) {
+function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null, pushChannel = null, steer = null, extras = {}) {
   activeSessions.set(sessionId, {
+    // backgroundTaskCount(): background tasks the CLI is running right now.
+    ...extras,
     instance: queryInstance,
     startTime: Date.now(),
     status: 'active',
@@ -728,6 +874,31 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
   };
 
+  // Background tasks the CLI runs for this session, and whether it is between
+  // turns. While any task runs, the CLI's input stays open (see
+  // DEFAULT_BACKGROUND_HOLD_MAX_MS) so the work survives and its notification
+  // turn streams here.
+  const backgroundTasks = createBackgroundTaskTracker();
+  let turnIdle = false;
+  // A background task ended since the current turn started: its notification
+  // turn is probably queued.
+  let taskEndedSinceTurnStart = false;
+  let heldTaskCount = 0;
+  let holdCapTimer = null;
+  let notificationGraceTimer = null;
+  // Why the CLI's input was closed; logged when the process exits.
+  let inputCloseReason = 'input still open';
+  const clearHoldTimers = () => {
+    if (holdCapTimer) {
+      clearTimeout(holdCapTimer);
+      holdCapTimer = null;
+    }
+    if (notificationGraceTimer) {
+      clearTimeout(notificationGraceTimer);
+      notificationGraceTimer = null;
+    }
+  };
+
   const emitNotification = (event) => {
     notifyUserIfEnabled({
       userId: ws?.userId || null,
@@ -943,6 +1114,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // echo, so nothing else changes on screen.
     sdkOptions.extraArgs = { ...(sdkOptions.extraArgs || {}), 'replay-user-messages': null };
 
+    // Same spawn as the SDK's own, plus a journal line for every CLI exit.
+    sdkOptions.spawnClaudeCodeProcess = createLoggedClaudeSpawn(() => ({
+      sessionId: capturedSessionId || sessionId || null,
+      reason: capturedSessionId && abortedSessionIds.has(capturedSessionId) ? 'stopped by user' : inputCloseReason,
+    }));
+
     // Create a push channel so this turn runs in streaming-input mode: the
     // CLI's stdin stays open while the turn runs, so a message the user sends
     // meanwhile can be steered into it (see steerClaudeSDKSession).
@@ -956,6 +1133,82 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // the copy shown live and the one in history are the same message.
       ...(typeof options.promptUuid === 'string' && options.promptUuid ? { uuid: options.promptUuid } : {}),
     });
+
+    const closeInput = (reason) => {
+      clearSteerFollowUpTimer();
+      clearHoldTimers();
+      if (pushChannel.isClosed) return;
+      inputCloseReason = reason;
+      pushChannel.close();
+    };
+
+    // Decides, whenever the CLI is between turns, whether its input may close.
+    // Order matters: a Stop closes at once; running background tasks hold it
+    // open (a steer then simply starts the next turn on this process); unread
+    // steers and a just-finished task's notification get a short grace for the
+    // follow-up turn they start; otherwise the run is over.
+    const settleInput = () => {
+      if (pushChannel.isClosed || !turnIdle) return;
+      if (capturedSessionId && abortedSessionIds.has(capturedSessionId)) {
+        closeInput('stopped by user');
+        return;
+      }
+      const taskCount = backgroundTasks.size();
+      if (taskCount > 0) {
+        if (notificationGraceTimer) {
+          clearTimeout(notificationGraceTimer);
+          notificationGraceTimer = null;
+        }
+        if (taskCount !== heldTaskCount) {
+          heldTaskCount = taskCount;
+          console.log(`[Claude SDK] keeping CLI alive for ${taskCount} background task(s) session=${capturedSessionId || sessionId || 'NEW'} tasks=${backgroundTasks.ids().join(',')}`);
+          ws.send(createNormalizedMessage({
+            kind: 'status',
+            text: `Waiting for ${taskCount} background task${taskCount === 1 ? '' : 's'}`,
+            sessionId: capturedSessionId || sessionId || null,
+            provider: 'claude',
+            canInterrupt: true,
+          }));
+        }
+        if (!holdCapTimer) {
+          holdCapTimer = setTimeout(() => {
+            holdCapTimer = null;
+            console.warn(`[Claude SDK] background hold limit (${backgroundHoldLimits.maxMs} ms) reached for session ${capturedSessionId}; closing the CLI input with ${backgroundTasks.size()} task(s) still running.`);
+            closeInput('background hold limit reached');
+          }, backgroundHoldLimits.maxMs);
+          holdCapTimer.unref?.();
+        }
+        return;
+      }
+      heldTaskCount = 0;
+      if (holdCapTimer) {
+        clearTimeout(holdCapTimer);
+        holdCapTimer = null;
+      }
+      if (steerTracker.pendingCount() > 0) {
+        if (!steerFollowUpTimer) {
+          steerFollowUpTimer = setTimeout(() => {
+            steerFollowUpTimer = null;
+            console.warn(`[Claude SDK] Steered message(s) never started a follow-up turn for session ${capturedSessionId}; ending the run.`);
+            reportDroppedSteers('not_read');
+            closeInput('steered message not read');
+          }, STEER_FOLLOW_UP_GRACE_MS);
+          steerFollowUpTimer.unref?.();
+        }
+        return;
+      }
+      if (taskEndedSinceTurnStart) {
+        if (!notificationGraceTimer) {
+          notificationGraceTimer = setTimeout(() => {
+            notificationGraceTimer = null;
+            closeInput('background tasks ended, no follow-up turn');
+          }, backgroundHoldLimits.notificationGraceMs);
+          notificationGraceTimer.unref?.();
+        }
+        return;
+      }
+      closeInput('turn done, no background tasks');
+    };
 
     const steer = {
       tracker: steerTracker,
@@ -992,8 +1245,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Track the query instance and push channel for abort + steering
+    const sessionExtras = { backgroundTaskCount: () => backgroundTasks.size() };
     if (capturedSessionId) {
-      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer);
+      addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer, sessionExtras);
     }
 
     // Process streaming messages
@@ -1015,37 +1269,42 @@ async function queryClaudeSDK(command, options = {}, ws) {
         mainThreadModel = message.message.model;
       }
 
-      // Close the push channel when the turn completes so the iterator ends
-      // cleanly — unless steered messages are still unread. The CLI then runs
-      // them as a follow-up turn on this same process, which needs stdin open;
-      // that turn's own `result` closes it.
-      if (message.type === 'result') {
-        const abortPending = capturedSessionId ? abortedSessionIds.has(capturedSessionId) : false;
-        if (steerTracker.pendingCount() > 0 && !abortPending) {
-          clearSteerFollowUpTimer();
-          steerFollowUpTimer = setTimeout(() => {
-            steerFollowUpTimer = null;
-            console.warn(`[Claude SDK] Steered message(s) never started a follow-up turn for session ${capturedSessionId}; ending the run.`);
-            reportDroppedSteers('not_read');
-            pushChannel.close();
-          }, STEER_FOLLOW_UP_GRACE_MS);
-          steerFollowUpTimer.unref?.();
-        } else {
-          pushChannel.close();
+      // A new turn started on this process (a steered message's follow-up, a
+      // background task's notification): its own `result` settles the input.
+      if (turnIdle && isTurnActivity(message)) {
+        turnIdle = false;
+        taskEndedSinceTurnStart = false;
+        clearSteerFollowUpTimer();
+        if (notificationGraceTimer) {
+          clearTimeout(notificationGraceTimer);
+          notificationGraceTimer = null;
         }
       }
 
-      // The follow-up turn for unread steered messages has started; its own
-      // `result` ends the run.
-      if (message.type === 'system' && message.subtype === 'init') {
+      // Background task bookkeeping; a change while idle may end the run.
+      const taskChange = backgroundTasks.observe(message);
+      if (taskChange.ended > 0) {
+        taskEndedSinceTurnStart = true;
+      }
+      if (taskChange.changed) {
+        settleInput();
+      }
+
+      // The turn is over. Close the CLI's input so the iterator ends cleanly —
+      // unless background tasks still run (closing would start the CLI's
+      // 10-minute wind-down and kill them) or steered messages are unread
+      // (the CLI runs them as a follow-up turn, which needs stdin open).
+      if (message.type === 'result') {
+        turnIdle = true;
         clearSteerFollowUpTimer();
+        settleInput();
       }
 
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer);
+        addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer, sessionExtras);
         rememberSessionRunOptions(capturedSessionId, options);
 
         // Set session ID on writer
@@ -1192,6 +1451,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     return { status: 'error', sessionId: capturedSessionId || sessionId || null, error: errorContent };
   } finally {
     clearSteerFollowUpTimer();
+    clearHoldTimers();
     unregisterSudoRun(sudoToken);
   }
 }
@@ -1228,8 +1488,13 @@ async function abortClaudeSDKSession(sessionId) {
     ]);
     clearTimeout(timer);
 
-    if (!interrupted) {
-      console.log(`interrupt() did not finish for ${sessionId}, closing the CLI process`);
+    // interrupt() ends the turn but leaves background tasks running, and the
+    // input is held open for them — Stop must end those too.
+    const backgroundCount = session.backgroundTaskCount?.() ?? 0;
+    if (!interrupted || backgroundCount > 0) {
+      console.log(interrupted
+        ? `Stopping ${backgroundCount} background task(s) for ${sessionId}, closing the CLI process`
+        : `interrupt() did not finish for ${sessionId}, closing the CLI process`);
       try {
         session.instance.close();
       } catch (err) {
@@ -1373,6 +1638,12 @@ let queryImpl = query;
 function setClaudeQueryImplForTests(impl) {
   queryImpl = impl || query;
 }
+// Shortens the background-hold limits for tests; no argument restores them.
+function setBackgroundHoldLimitsForTests(limits) {
+  backgroundHoldLimits.maxMs = limits?.maxMs
+    ?? (parseInt(process.env.CLAUDE_BACKGROUND_HOLD_MAX_MS, 10) || DEFAULT_BACKGROUND_HOLD_MAX_MS);
+  backgroundHoldLimits.notificationGraceMs = limits?.notificationGraceMs ?? DEFAULT_BACKGROUND_NOTIFICATION_GRACE_MS;
+}
 
 // Export public API
 export {
@@ -1384,7 +1655,9 @@ export {
   listPendingSteers,
   createSteerTracker,
   createPushChannel,
+  createBackgroundTaskTracker,
   setClaudeQueryImplForTests,
+  setBackgroundHoldLimitsForTests,
   isClaudeSDKSessionActive,
   getActiveClaudeSDKSessions,
   resolveToolApproval,
