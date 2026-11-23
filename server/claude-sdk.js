@@ -1400,6 +1400,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // A user stop already sent its own 'complete' from the abort handler
     if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
+      inputCloseReason = 'stopped by user';
       return { status: 'aborted', sessionId: capturedSessionId, resultText: finalResultText };
     }
 
@@ -1430,6 +1431,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // The process was killed because the user pressed Stop — not a failure
     if (capturedSessionId && abortedSessionIds.delete(capturedSessionId)) {
+      inputCloseReason = 'stopped by user';
       return { status: 'aborted', sessionId: capturedSessionId, resultText: null };
     }
 
