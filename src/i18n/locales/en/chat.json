@@ -139,7 +139,9 @@
       "enter": "Enter to send • Shift+Enter for new line • Tab to change modes • / for slash commands",
       "queue": "Enter to queue your next message",
       "updateQueued": "Enter to update queued message",
-      "tapSend": "Enter for new line • Tap send to submit • / for slash commands"
+      "tapSend": "Enter for new line • Tap send to submit • / for slash commands",
+      "steer": "Enter = Claude reads it now, at its next step • Alt+Enter = queue for after this turn",
+      "steerTouch": "Send ↑ = Claude reads it now, at its next step • ⏱ = after this turn"
     },
     "clickToChangeMode": "Click to change permission mode (or press Tab in input)",
     "showAllCommands": "Show all commands",
@@ -152,6 +154,13 @@
       "willSend": "Will send when this finishes",
       "edit": "Edit queued message",
       "delete": "Delete queued message"
+    },
+    "steer": {
+      "label": "Sent to Claude",
+      "waiting": "it reads this at its next step",
+      "send": "Send now — Claude reads it at its next step",
+      "queueInstead": "Queue for after this turn",
+      "placeholder": "Tell Claude something now — it reads it at its next step"
     }
   },
   "thinkingMode": {

@@ -19,6 +19,8 @@ import ImageAttachment from './ImageAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import { MCP_ELICITATION_TOOL_NAME } from '../../tools/configs/permissionPanelRegistry';
 import QueuedMessageCard from './QueuedMessageCard';
+import SteeredMessageCard from './SteeredMessageCard';
+import type { PendingSteer } from '../../hooks/useSteeredMessages';
 import { EffortSelector, type EffortLevel } from './EffortSelector';
 import ModelSelector from './ModelSelector';
 import ContextUsagePill from './ContextUsagePill';
@@ -118,6 +120,11 @@ interface ChatComposerProps {
   queuedPrompt?: string | null;
   onClearQueuedPrompt?: () => void;
   btwNotice?: 'sent' | 'no_turn' | null;
+  /** A send now goes into the running Claude turn rather than the queue. */
+  canSteer?: boolean;
+  pendingSteers?: PendingSteer[];
+  /** Holds the typed message until the running turn ends. */
+  onQueueSubmit?: (event: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
   onTogglePromptNav?: () => void;
   dictationState?: 'idle' | 'recording' | 'transcribing' | 'error';
   dictationError?: string | null;
@@ -190,6 +197,9 @@ const ChatComposer = memo(function ChatComposer({
   queuedPrompt,
   onClearQueuedPrompt,
   btwNotice,
+  canSteer = false,
+  pendingSteers = [],
+  onQueueSubmit,
   onTogglePromptNav,
   dictationState = 'idle',
   dictationError,
@@ -216,7 +226,17 @@ const ChatComposer = memo(function ChatComposer({
 
   const hasQueuedDraft = Boolean(queuedDraft);
   const canQueueDraft = isLoading && Boolean(input.trim());
-  const submitHint = canQueueDraft
+  // Images cannot ride into a running turn; those still queue.
+  const willSteer = canQueueDraft && canSteer && attachedImages.length === 0;
+  const submitHint = willSteer
+    ? hasSoftKeyboard()
+      ? t('input.hintText.steerTouch', {
+          defaultValue: 'Send ↑ = Claude reads it now, at its next step • ⏱ = after this turn',
+        })
+      : t('input.hintText.steer', {
+          defaultValue: 'Enter = Claude reads it now, at its next step • Alt+Enter = queue for after this turn',
+        })
+    : canQueueDraft
     ? hasQueuedDraft
       ? t('input.hintText.updateQueued', { defaultValue: 'Enter to update queued message' })
       : t('input.hintText.queue', { defaultValue: 'Enter to queue your next message' })
@@ -227,7 +247,9 @@ const ChatComposer = memo(function ChatComposer({
       : sendByCtrlEnter
         ? t('input.hintText.ctrlEnter')
         : t('input.hintText.enter');
-  const submitAriaLabel = canQueueDraft
+  const submitAriaLabel = willSteer
+    ? t('input.steer.send', { defaultValue: 'Send now — Claude reads it at its next step' })
+    : canQueueDraft
     ? hasQueuedDraft
       ? t('input.queue.update', { defaultValue: 'Update queued message' })
       : t('input.queue.sendNext', { defaultValue: 'Queue next message' })
@@ -258,6 +280,8 @@ const ChatComposer = memo(function ChatComposer({
           />
         </div>
       )}
+
+      <SteeredMessageCard steers={pendingSteers} />
 
       {queuedDraft && (
         <QueuedMessageCard
@@ -588,7 +612,21 @@ const ChatComposer = memo(function ChatComposer({
             onOpenSettings={onOpenSettings}
           />
 
-          <div className="flex flex-shrink-0 items-center pl-1">
+          <div className="flex flex-shrink-0 items-center gap-1 pl-1">
+            {willSteer && onQueueSubmit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onQueueSubmit(e);
+                }}
+                aria-label={t('input.steer.queueInstead', { defaultValue: 'Queue for after this turn' })}
+                title={t('input.steer.queueInstead', { defaultValue: 'Queue for after this turn' })}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <ClockIcon className="h-4 w-4" />
+              </button>
+            )}
             <PromptInputSubmit
               onClick={
                 canQueueDraft
