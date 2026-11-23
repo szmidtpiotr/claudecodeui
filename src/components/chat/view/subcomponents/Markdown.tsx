@@ -171,6 +171,25 @@ const isExternalHref = (href?: string): boolean =>
 // Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130`).
 const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
 
+// Markdown hrefs are URLs (the parser percent-encodes non-ASCII characters),
+// while the editor needs a filesystem path. Decode once at this boundary;
+// repeated decoding would rename literal `%20` files.
+const decodeFileHref = (value: string): string => {
+  // Match one UTF-8 character at a time so a literal percent or an invalid
+  // byte sequence cannot prevent valid escapes elsewhere from decoding.
+  return value.replace(
+    /%(?:[0-7][\da-f]|[cd][\da-f]%[89ab][\da-f]|e[\da-f](?:%[89ab][\da-f]){2}|f[0-4](?:%[89ab][\da-f]){3})/gi,
+    (encodedCharacter) => {
+      try {
+        return decodeURIComponent(encodedCharacter);
+      } catch {
+        // Preserve invalid UTF-8 (including overlong or surrogate encodings).
+        return encodedCharacter;
+      }
+    },
+  );
+};
+
 // A usable file path contains a separator or a filename with an extension.
 const looksLikeFilePath = (value?: string): value is string => {
   if (!value) {
@@ -238,7 +257,10 @@ function MarkdownImpl({ children, className, projectId }: MarkdownProps) {
         // Prefer the href when it is a real path; otherwise fall back to the
         // link text, since models often emit `[src/foo.ts]()` with an empty href.
         const linkText = childrenToText(linkChildren);
-        const fileRef = looksLikeFilePath(href) ? href : looksLikeFilePath(linkText) ? linkText : undefined;
+        // Classify a decoded copy of the href, retaining the original.
+        const fileRef = looksLikeFilePath(href && decodeFileHref(href))
+          ? href
+          : looksLikeFilePath(linkText) ? linkText : undefined;
 
         if (fileRef && !isExternalHref(href)) {
           return (
@@ -247,7 +269,11 @@ function MarkdownImpl({ children, className, projectId }: MarkdownProps) {
               className="cursor-pointer text-blue-600 hover:underline dark:text-blue-400"
               onClick={(event) => {
                 event.preventDefault();
-                openFileInEditor(stripLineSuffix(fileRef));
+                // Strip line metadata before decoding so an encoded colon in a
+                // filename is not mistaken for a line suffix. Link text is
+                // already literal text and must not be URL-decoded.
+                const path = stripLineSuffix(fileRef.trim());
+                openFileInEditor(href === fileRef ? decodeFileHref(path) : path);
               }}
             >
               {linkChildren}
