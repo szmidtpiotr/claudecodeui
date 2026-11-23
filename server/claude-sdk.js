@@ -31,7 +31,13 @@ import {
 } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
-import { createNormalizedMessage } from './shared/utils.js';
+import {
+  createNormalizedMessage,
+  getReportedClaudeContextWindow,
+  readReportedClaudeContextWindow,
+  rememberClaudeContextWindow,
+  resolveClaudeContextWindow
+} from './shared/utils.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -383,9 +389,10 @@ function readNumber(value) {
  * Prefers per-step `message.usage` (Claude message payload), then falls back
  * to result-level usage/modelUsage for compatibility across SDK versions.
  * @param {Object} sdkMessage - SDK stream message
+ * @param {number|null} [reportedContextWindow] - SDK-reported window for the session's model
  * @returns {Object|null} Token budget object or null
  */
-function extractTokenBudget(sdkMessage) {
+function extractTokenBudget(sdkMessage, reportedContextWindow) {
   if (!sdkMessage || typeof sdkMessage !== 'object') {
     return null;
   }
@@ -395,7 +402,7 @@ function extractTokenBudget(sdkMessage) {
     const inputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
     const outputTokens = readNumber(messageUsage.output_tokens ?? messageUsage.outputTokens);
     const totalUsed = inputTokens + outputTokens;
-    const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
+    const contextWindow = resolveClaudeContextWindow(reportedContextWindow);
 
     return {
       used: totalUsed,
@@ -424,7 +431,7 @@ function extractTokenBudget(sdkMessage) {
   const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
   const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
   const totalUsed = inputTokens + outputTokens;
-  const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
+  const contextWindow = resolveClaudeContextWindow(reportedContextWindow);
 
   return {
     used: totalUsed,
@@ -747,7 +754,21 @@ async function queryClaudeSDK(command, options = {}, ws) {
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     let compactionOccurred = false;
     let finalResultText = null;
+    // The window the SDK reported for this session's model (a resumed session
+    // starts from the one its last run reported) and the model the main
+    // thread's assistant rows name, used to pick the right modelUsage entry.
+    let reportedContextWindow = getReportedClaudeContextWindow(sessionId) ?? null;
+    let mainThreadModel = null;
     for await (const message of queryInstance) {
+      if (
+        message.type === 'assistant'
+        && !message.parent_tool_use_id
+        && typeof message.message?.model === 'string'
+        && message.message.model !== '<synthetic>'
+      ) {
+        mainThreadModel = message.message.model;
+      }
+
       // Close the push channel when the turn completes so the iterator ends cleanly
       if (message.type === 'result') {
         pushChannel.close();
@@ -802,7 +823,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
         if (models.length > 0) {
           // Model info available in result message
         }
-        const tokenBudgetData = extractTokenBudget(message);
+        // Only a turn's `result` states the window of the model that served it.
+        const turnContextWindow = readReportedClaudeContextWindow(message, mainThreadModel);
+        if (turnContextWindow) {
+          reportedContextWindow = turnContextWindow;
+          rememberClaudeContextWindow(message.session_id || capturedSessionId, turnContextWindow);
+        }
+        const tokenBudgetData = extractTokenBudget(message, reportedContextWindow);
         if (tokenBudgetData) {
           // After compaction the result shows the tokens used TO DO the compaction (all
           // old context as input), which reads as 100%.  Send used:0 so the indicator

@@ -1184,3 +1184,92 @@ export function isClaudeNonTurnMessageRow(row: AnyRecord): boolean {
   return row.message != null && row.type !== 'user' && row.type !== 'assistant';
 }
 
+// ---------------------------
+//----------------- CLAUDE CONTEXT WINDOW UTILITIES ------------
+/*
+ * The SDK states the real window of the model that served a turn only in the
+ * turn's `result.modelUsage[model].contextWindow` (1M for `[1m]` variants, 200K
+ * for others, whatever a self-hosted model behind ANTHROPIC_BASE_URL allows).
+ * The CONTEXT_WINDOW setting stays the fallback when no window was reported.
+ */
+
+/** One number per session; the cap only bounds a long-lived server's memory. */
+const MAX_REPORTED_CLAUDE_CONTEXT_WINDOWS = 1000;
+
+/**
+ * Windows the Claude SDK reported per provider session id. Process memory on
+ * purpose: after a restart the counter falls back to CONTEXT_WINDOW until the
+ * session's next turn reports again.
+ */
+const reportedClaudeContextWindows = new Map<string, number>();
+
+function readPositiveNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+/**
+ * The window a budget is measured against: the one the SDK reported for the
+ * session's model when known, else the server-wide CONTEXT_WINDOW setting.
+ */
+export function resolveClaudeContextWindow(reportedContextWindow?: number | null): number {
+  if (typeof reportedContextWindow === 'number' && Number.isFinite(reportedContextWindow) && reportedContextWindow > 0) {
+    return reportedContextWindow;
+  }
+  return parseInt(process.env.CONTEXT_WINDOW || '', 10) || 160000;
+}
+
+/**
+ * Reads the context window the SDK measured for the model that served a turn.
+ *
+ * `result.modelUsage` has one entry per model the turn billed, subagents'
+ * included, so the entry has to be the main thread's model. Its key is the id
+ * the CLI requested, which for a 1M variant carries a `[1m]` suffix that the
+ * assistant rows' `message.model` lacks; newer CLIs also state the bare id as
+ * `canonicalModel`. Returns null when there is no usable window.
+ */
+export function readReportedClaudeContextWindow(sdkMessage: unknown, mainModel: string | null): number | null {
+  const message = sdkMessage as AnyRecord | null | undefined;
+  const modelUsage = message?.type === 'result' ? message.modelUsage : null;
+  if (!modelUsage || typeof modelUsage !== 'object') {
+    return null;
+  }
+
+  const reported = Object.entries(modelUsage as Record<string, AnyRecord>).filter(
+    ([, modelData]) => modelData && typeof modelData === 'object' && readPositiveNumber(modelData.contextWindow) > 0,
+  );
+  const exactMatch = reported.find(([modelKey]) => modelKey === mainModel);
+  const variantMatch = reported.find(([modelKey, modelData]) => (
+    Boolean(mainModel)
+    && (modelData.canonicalModel === mainModel || modelKey.replace(/\[[^\]]*\]$/, '') === mainModel)
+  ));
+  // A turn that billed a single model was served by it, whatever it is called.
+  const entry = exactMatch ?? variantMatch ?? (reported.length === 1 ? reported[0] : null);
+  return entry ? readPositiveNumber(entry[1].contextWindow) : null;
+}
+
+/**
+ * Records the window the SDK reported for a session's turn. Non-positive or
+ * non-numeric values are ignored so a build that reports no window never
+ * overwrites one that did.
+ */
+export function rememberClaudeContextWindow(providerSessionId: string | null | undefined, contextWindow: number): void {
+  if (!providerSessionId || !(readPositiveNumber(contextWindow) > 0)) {
+    return;
+  }
+
+  // Re-insert so the most recently reported sessions are the last evicted.
+  reportedClaudeContextWindows.delete(providerSessionId);
+  reportedClaudeContextWindows.set(providerSessionId, contextWindow);
+  if (reportedClaudeContextWindows.size > MAX_REPORTED_CLAUDE_CONTEXT_WINDOWS) {
+    const oldestSessionId = reportedClaudeContextWindows.keys().next().value;
+    if (oldestSessionId !== undefined) {
+      reportedClaudeContextWindows.delete(oldestSessionId);
+    }
+  }
+}
+
+/** The last window reported for the session, or undefined when none was. */
+export function getReportedClaudeContextWindow(providerSessionId: string | null | undefined): number | undefined {
+  return providerSessionId ? reportedClaudeContextWindows.get(providerSessionId) : undefined;
+}
