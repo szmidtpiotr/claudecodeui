@@ -514,6 +514,8 @@ export default function SidebarSessionItem({
           onClick={(event) => {
             if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault();
+            // The second click of a double-click (rename) must not select again.
+            if (event.detail > 1) return;
             onSessionSelect(session, project.projectId);
           }}
         >
@@ -530,6 +532,12 @@ export default function SidebarSessionItem({
                   <div
                     ref={desktopTitleRef}
                     className={cn('truncate text-xs font-medium', isPinned ? 'text-amber-400' : 'text-foreground')}
+                    onDoubleClick={(event) => {
+                      if (isEditing || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartEditingSession(session.id, sessionView.sessionName);
+                    }}
                   >
                     {sessionView.sessionName}
                   </div>
