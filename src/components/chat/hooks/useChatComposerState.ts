@@ -63,6 +63,8 @@ function hasValidImageSignature(buf: ArrayBuffer, mimeType: string): boolean {
 // quality until it fits. Claude downsamples anything larger anyway, so no
 // useful detail is lost.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Most images the composer holds at once; extra ones are refused and named. */
+const MAX_ATTACHED_IMAGES = 5;
 const MAX_IMAGE_EDGE = 2048;
 const UPLOADABLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -303,6 +305,9 @@ export function useChatComposerState({
     return '';
   });
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
+  // Read by the async image snapshot step to know how many slots are still free.
+  const attachedImagesRef = useRef<File[]>(attachedImages);
+  attachedImagesRef.current = attachedImages;
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
@@ -674,8 +679,23 @@ export function useChatComposerState({
       }),
     ).then((snapshots) => {
       const stable = snapshots.filter((f): f is File => f !== null);
-      if (stable.length > 0) {
-        setAttachedImages((previous) => [...previous, ...stable].slice(0, 5));
+      if (stable.length === 0) return;
+      // Name every image past the limit instead of silently dropping it (it
+      // never gets a thumbnail, so the composer lists it as an orphan error).
+      const freeSlots = Math.max(0, MAX_ATTACHED_IMAGES - attachedImagesRef.current.length);
+      const accepted = stable.slice(0, freeSlots);
+      const refused = stable.slice(freeSlots);
+      if (refused.length > 0) {
+        setImageErrors((previous) => {
+          const next = new Map(previous);
+          refused.forEach((file) => {
+            next.set(file.name || 'image', `Not attached — over the ${MAX_ATTACHED_IMAGES}-image limit`);
+          });
+          return next;
+        });
+      }
+      if (accepted.length > 0) {
+        setAttachedImages((previous) => [...previous, ...accepted].slice(0, MAX_ATTACHED_IMAGES));
       }
     });
   }, []);
@@ -684,15 +704,16 @@ export function useChatComposerState({
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const items = Array.from(event.clipboardData.items);
 
-      items.forEach((item) => {
-        if (!item.type.startsWith('image/')) {
-          return;
-        }
-        const file = item.getAsFile();
-        if (file) {
-          handleImageFiles([file]);
-        }
-      });
+      // One call for the whole paste: each call resets the error list and
+      // counts free slots once, so attaching images one by one would hide
+      // errors from earlier images and let a paste overfill the composer.
+      const pastedImages = items
+        .filter((item) => item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      if (pastedImages.length > 0) {
+        handleImageFiles(pastedImages);
+      }
 
       if (items.length === 0 && event.clipboardData.files.length > 0) {
         const files = Array.from(event.clipboardData.files);
@@ -720,7 +741,8 @@ export function useChatComposerState({
       'image/avif': ['.avif'],
       'image/bmp': ['.bmp'],
     },
-    maxFiles: 5,
+    // No maxFiles: dropzone refuses the whole drop past the limit, so
+    // handleImageFiles attaches what fits and names the rest.
     onDrop: handleImageFiles,
     onDropRejected: (rejections) => {
       setImageErrors((previous) => {
