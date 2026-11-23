@@ -189,6 +189,9 @@ function ChatInterface({
     queuedPrompt,
     clearQueuedPrompt,
     btwNotice,
+    canSteer,
+    pendingSteers,
+    handleQueueSubmit,
     handleSubmit,
     handleInputChange,
     handleKeyDown,
@@ -238,6 +241,7 @@ function ChatInterface({
     setClaudeStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
+    latestMessage,
   });
 
   // When the browser tab becomes visible again, re-query session status so:
@@ -523,13 +527,15 @@ function ChatInterface({
     : provider === 'azure' ? azureModel
     : claudeModel;
 
-  const composerPlaceholder = useMemo(() => t('input.placeholder', {
+  const composerPlaceholder = useMemo(() => canSteer
+    ? t('input.steer.placeholder', { defaultValue: 'Tell Claude something now — it reads it at its next step' })
+    : t('input.placeholder', {
     provider:
       provider === 'cursor' ? t('messageTypes.cursor')
       : provider === 'codex' ? t('messageTypes.codex')
       : provider === 'opencode' ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
       : t('messageTypes.claude'),
-  }), [t, provider]);
+  }), [t, provider, canSteer]);
 
   if (!selectedProject) {
     const selectedProviderLabel =
@@ -683,6 +689,9 @@ function ChatInterface({
           queuedPrompt={queuedPrompt}
           onClearQueuedPrompt={clearQueuedPrompt}
           btwNotice={btwNotice}
+          canSteer={canSteer}
+          pendingSteers={pendingSteers}
+          onQueueSubmit={handleQueueSubmit}
           onTogglePromptNav={handleTogglePromptNav}
           dictationState={dictationState}
           dictationError={dictationError}

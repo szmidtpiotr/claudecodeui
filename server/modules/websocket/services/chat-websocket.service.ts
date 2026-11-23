@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 import type { WebSocket } from 'ws';
 
 import {
@@ -62,7 +64,12 @@ type ChatWebSocketDependencies = {
   isAzureSessionActive: (sessionId: string) => boolean;
   reconnectSessionWriter: (sessionId: string, ws: WebSocket) => boolean;
   getPendingApprovalsForSession: (sessionId: string) => unknown[];
-  injectBtwMessage?: (sessionId: string, content: string) => { ok: boolean };
+  steerClaudeSDKSession?: (
+    sessionId: string,
+    messageId: string,
+    content: string
+  ) => { ok: boolean; reason?: string };
+  listPendingSteers?: (sessionId: string) => Array<{ messageId: string; content: string }>;
   getActiveClaudeSDKSessions: () => unknown;
   getActiveCursorSessions: () => unknown;
   getActiveCodexSessions: () => unknown;
@@ -103,6 +110,49 @@ function readRequestUserId(
   }
 
   return null;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type SteerReplyWriter = { send: (data: unknown) => void };
+
+/**
+ * Hands a steered message to the running Claude turn and tells the sender how
+ * it went. `pending` means the turn has it and will read it at its next tool
+ * call (every tab watching the run also hears that, from the run itself);
+ * `rejected` means there is no turn to join any more, and the sender sends it
+ * as an ordinary next turn instead.
+ *
+ * The message id is the sender's: the CLI echoes it back when Claude reads the
+ * message and history stores it under it, so it must be a UUID.
+ */
+export function handleSteerRequest(
+  data: AnyRecord,
+  writer: SteerReplyWriter,
+  dependencies: Pick<ChatWebSocketDependencies, 'steerClaudeSDKSession'>
+): void {
+  const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+  const rawContent = typeof data.command === 'string' ? data.command : data.content;
+  const content = typeof rawContent === 'string' ? rawContent.trim() : '';
+  const messageId = typeof data.messageId === 'string' && UUID_PATTERN.test(data.messageId)
+    ? data.messageId
+    : crypto.randomUUID();
+  if (!content) {
+    return;
+  }
+
+  const result = sessionId && dependencies.steerClaudeSDKSession
+    ? dependencies.steerClaudeSDKSession(sessionId, messageId, content)
+    : { ok: false, reason: 'no_active_turn' };
+
+  writer.send({
+    type: 'steer-status',
+    state: result.ok ? 'pending' : 'rejected',
+    ...(result.ok ? {} : { reason: result.reason || 'no_active_turn' }),
+    sessionId,
+    messageId,
+    content,
+  });
 }
 
 /**
@@ -216,20 +266,11 @@ export function handleChatConnection(
         return;
       }
 
-      if (messageType === 'btw-inject') {
-        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
-        const content = typeof data.content === 'string' ? data.content.trim() : '';
-        if (sessionId && content && dependencies.injectBtwMessage) {
-          const result = dependencies.injectBtwMessage(sessionId, content);
-          if (!result.ok) {
-            writer.send(createNormalizedMessage({
-              kind: 'error',
-              error: 'No active turn to inject into',
-              sessionId,
-              provider: 'claude',
-            }));
-          }
-        }
+      // A message sent while a Claude turn runs, delivered into that turn
+      // ("steering"): Claude reads it at its next tool-call boundary. `btw-inject`
+      // is the older `/btw` wire name for the same thing.
+      if (messageType === 'claude-steer' || messageType === 'btw-inject') {
+        handleSteerRequest(data, writer, dependencies);
         return;
       }
 
@@ -301,6 +342,11 @@ export function handleChatConnection(
           sessionId,
           provider,
           isProcessing: isActive,
+          // Steered messages the running turn has not read yet, so a tab that
+          // opens mid-run shows them as pending like the tab that sent them.
+          ...(provider === 'claude' && isActive && dependencies.listPendingSteers
+            ? { pendingSteers: dependencies.listPendingSteers(sessionId) }
+            : {}),
         });
         return;
       }

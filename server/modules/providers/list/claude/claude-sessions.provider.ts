@@ -352,6 +352,42 @@ function readDetachedTaskNotification(raw: AnyRecord): string | null {
   return typeof text === 'string' && text.trimStart().startsWith(TASK_NOTIFICATION_PREFIX) ? text : null;
 }
 
+/**
+ * The user's message inside a `queued_command` attachment written when Claude
+ * read a message steered into a running turn: its text, the id it was sent
+ * with, and when Claude read it. Null for any other attachment — including
+ * task notifications, which travel the same way but are not the user talking.
+ */
+export function readSteeredMessageAttachment(
+  raw: AnyRecord,
+): { id: string | null; content: string; timestamp: string | null } | null {
+  const attachment = readObjectRecord(raw.attachment);
+  if (!attachment || attachment.type !== 'queued_command') {
+    return null;
+  }
+  const commandMode = attachment.commandMode ?? 'prompt';
+  if (commandMode !== 'prompt') {
+    return null;
+  }
+  const prompt = attachment.prompt;
+  const content = typeof prompt === 'string'
+    ? prompt
+    : Array.isArray(prompt)
+      ? prompt
+        .filter((part: AnyRecord) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part: AnyRecord) => part.text)
+        .join('\n')
+      : '';
+  if (!content.trim() || content.trimStart().startsWith(TASK_NOTIFICATION_PREFIX)) {
+    return null;
+  }
+  return {
+    id: typeof attachment.source_uuid === 'string' && attachment.source_uuid ? attachment.source_uuid : null,
+    content,
+    timestamp: typeof attachment.timestamp === 'string' ? attachment.timestamp : null,
+  };
+}
+
 /** Identifies one notification across the shapes it is written in. */
 function taskNotificationKey(text: string): string {
   const toolUseId = extractTaggedContent(text, 'tool-use-id')?.trim();
@@ -437,6 +473,24 @@ export class ClaudeSessionsProvider implements IProviderSessions {
     const messages: NormalizedMessage[] = [];
     const ts = raw.timestamp || new Date().toISOString();
     const baseId = raw.uuid || generateMessageId('claude');
+
+    // A message steered into a running turn that Claude read at a tool-call
+    // boundary is stored as a `queued_command` attachment of that turn rather
+    // than as a user row. It reads as the user's message, at the point Claude
+    // read it — under the id it was sent with (`source_uuid`), which is the id
+    // the live echo carried, so the two reconcile into one bubble.
+    // A `commandMode` other than `prompt` is the CLI talking to itself, and
+    // task notifications are surfaced by recoverTaskNotificationRows.
+    const steered = raw.type === 'attachment' ? readSteeredMessageAttachment(raw) : null;
+    if (steered) {
+      return this.normalizeMessage({
+        type: 'user',
+        uuid: steered.id || baseId,
+        // The row's own time is when Claude read it, which is where it belongs.
+        timestamp: raw.timestamp || steered.timestamp || ts,
+        message: { role: 'user', content: steered.content },
+      }, sessionId);
+    }
 
     if (raw.message?.role === 'user' && raw.message?.content && raw.isMeta !== true) {
       if (Array.isArray(raw.message.content)) {

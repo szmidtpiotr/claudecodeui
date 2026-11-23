@@ -32,6 +32,7 @@ import { escapeRegExp } from '../utils/chatFormatting';
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import { useQueuedPrompt } from './useQueuedPrompt';
+import { useSteeredMessages } from './useSteeredMessages';
 import { hasSoftKeyboard } from '../../../utils/device';
 
 type PendingViewSession = {
@@ -137,6 +138,8 @@ interface UseChatComposerStateArgs {
   setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
+  /** Realtime frames, read for the progress of steered messages. */
+  latestMessage?: Record<string, unknown> | null;
 }
 
 interface MentionableFile {
@@ -242,6 +245,11 @@ type SubmitOptions = {
    * run that command instead of being sent.
    */
   skipCommandInterception?: boolean;
+  /**
+   * While a turn runs, hold the message until it ends instead of steering it
+   * into the running turn (the default for Claude).
+   */
+  queueOnly?: boolean;
 };
 
 const createFakeSubmitEvent = () => {
@@ -310,6 +318,7 @@ export function useChatComposerState({
   setClaudeStatus,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
+  latestMessage = null,
 }: UseChatComposerStateArgs) {
   const lastSubmittedInputRef = useRef<string>('');
   // Mirror chatMessages in a ref so abort callbacks always read the latest value
@@ -878,6 +887,44 @@ export function useChatComposerState({
     selectedSession,
   ]);
 
+  // A Claude run keeps its CLI input open, so a message sent while it works
+  // can go into the running turn ("steering") — read at the next tool call,
+  // nothing stopped. Other providers have no such channel and queue instead.
+  const steeringSessionId = provider === 'claude' ? (currentSessionId || selectedSession?.id || null) : null;
+  const canSteer = isLoading && Boolean(steeringSessionId);
+
+  // Holds text to send as the next turn, merged into an already queued draft.
+  const queueTextForNextTurn = useCallback((content: string) => {
+    queuedDraftSessionRef.current = sessionKey;
+    setQueuedDraft((previous) => (
+      previous
+        ? { ...previous, content: `${previous.content}\n\n${content}` }
+        : { content, images: [], options: buildSendOptions(content) }
+    ));
+  }, [buildSendOptions, sessionKey]);
+
+  const { pendingSteers, steer } = useSteeredMessages({
+    latestMessage,
+    sessionId: steeringSessionId,
+    sendMessage,
+    // The turn ended before the message reached it: it becomes the next turn.
+    onRejected: queueTextForNextTurn,
+    onDropped: (content, reason) => {
+      if (reason === 'not_read') {
+        // The run finished on its own and the CLI never picked it up.
+        queueTextForNextTurn(content);
+        return;
+      }
+      // Stopped (or failed) with the message unread: hand the text back so
+      // nothing typed is lost; the person decides whether to send it again.
+      setInput((previous) => {
+        const next = previous.trim() ? `${content}\n\n${previous}` : content;
+        inputValueRef.current = next;
+        return next;
+      });
+    },
+  });
+
   const handleSubmit = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
@@ -897,17 +944,46 @@ export function useChatComposerState({
         const btwContent = btwMatch[1].trim();
         const sessionId = currentSessionId;
         if (btwNoticeTimerRef.current) clearTimeout(btwNoticeTimerRef.current);
-        if (btwContent && isLoading && sessionId) {
-          sendMessage({ type: 'btw-inject', sessionId, content: btwContent });
-          setBtwNotice('sent');
+        // `/btw` is the explicit spelling of what a plain send does while a
+        // Claude turn runs: the text goes into the running turn.
+        if (btwContent && canSteer && sessionId) {
+          steer(btwContent);
+          lastSubmittedInputRef.current = '';
         } else {
           setBtwNotice('no_turn');
+          btwNoticeTimerRef.current = setTimeout(() => setBtwNotice(null), 3000);
         }
-        btwNoticeTimerRef.current = setTimeout(() => setBtwNotice(null), 3000);
         setInput('');
         inputValueRef.current = '';
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
         return;
+      }
+
+      // A Claude turn is running: deliver the message into it. Claude reads it
+      // at its next tool call; the pending card shows it until then. Images and
+      // slash commands cannot ride along (the CLI input takes plain text, and a
+      // command has to run as a command), so those wait in the queue below.
+      if (canSteer && !submitOptions?.queueOnly && attachedImages.length === 0) {
+        const trimmed = currentInput.trim();
+        const firstToken = trimmed.split(/\s/, 1)[0];
+        const isSlashCommand = trimmed.startsWith('/')
+          && (firstToken === '/help' || slashCommands.some((cmd: SlashCommand) => cmd.name === firstToken));
+        if (!isSlashCommand && steer(trimmed)) {
+          // The stop button's "nothing answered yet, restore the prompt" guess
+          // would otherwise pull a stale prompt back after a steer.
+          lastSubmittedInputRef.current = '';
+          setInput('');
+          inputValueRef.current = '';
+          resetCommandMenuState();
+          setIsTextareaExpanded(false);
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+          safeLocalStorage.removeItem(`draft_input_${selectedProject.projectId}`);
+          setIsUserScrolledUp(false);
+          setTimeout(() => scrollToBottom(), 100);
+          return;
+        }
       }
 
       // A turn is already in flight: stash this message instead of sending it.
@@ -1201,6 +1277,8 @@ export function useChatComposerState({
       setIsUserScrolledUp,
       slashCommands,
       effortLevel,
+      canSteer,
+      steer,
     ],
   );
 
@@ -1388,7 +1466,12 @@ export function useChatComposerState({
           return;
         }
 
-        if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
+        if (event.altKey && isLoading && !event.shiftKey) {
+          // Alt+Enter while a turn runs: hold it for after the turn instead of
+          // sending it into the running one.
+          event.preventDefault();
+          handleSubmit(event, { queueOnly: true });
+        } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
           event.preventDefault();
           handleSubmit(event);
         } else if (
@@ -1412,10 +1495,19 @@ export function useChatComposerState({
       handleCommandMenuKeyDown,
       handleFileMentionsKeyDown,
       handleSubmit,
+      isLoading,
       sendByCtrlEnter,
       showCommandMenu,
       showFileDropdown,
     ],
+  );
+
+  // The send menu's "queue instead" choice while a turn runs.
+  const handleQueueSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent) => {
+      void handleSubmit(event, { queueOnly: true });
+    },
+    [handleSubmit],
   );
 
   const handleTextareaClick = useCallback(
@@ -1586,6 +1678,9 @@ export function useChatComposerState({
     queuedPrompt,
     clearQueuedPrompt,
     btwNotice,
+    canSteer,
+    pendingSteers,
+    handleQueueSubmit,
     handleSubmit,
     handleInputChange,
     handleKeyDown,
