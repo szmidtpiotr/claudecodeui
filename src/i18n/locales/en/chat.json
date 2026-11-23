@@ -303,5 +303,11 @@
   "compactSummary": {
     "label": "Compacted context",
     "hint": "click to expand"
+  },
+  "fork": {
+    "button": "Fork",
+    "title": "Fork: open a derived session that continues from this response",
+    "ariaLabel": "Fork conversation from this response",
+    "failed": "Could not fork the session: {{reason}}"
   }
 }

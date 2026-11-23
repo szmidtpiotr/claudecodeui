@@ -15,6 +15,7 @@ import { useSudoPasswordPrompt } from '../hooks/useSudoPasswordPrompt';
 import { useWhisperDictation } from '../hooks/useWhisperDictation';
 import { loadWhisperSettings, matchesShortcut, formatShortcut } from '../../settings/view/tabs/VoiceSettingsTab';
 import { useSessionStore } from '../../../stores/useSessionStore';
+import { api } from '../../../utils/api';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -465,7 +466,10 @@ function ChatInterface({
     return () => document.removeEventListener('keydown', handleDictationShortcut, { capture: true });
   }, [toggleRecording]);
 
-  const handleForkFromMessage = useCallback((agentMessage: ChatMessage) => {
+  const [isForking, setIsForking] = useState(false);
+
+  // Paste-the-exchange fallback for providers without real forks.
+  const openNewSessionWithExchange = useCallback((agentMessage: ChatMessage) => {
     if (!selectedProject) return;
     const agentContent = String(agentMessage.content || '').trim();
 
@@ -479,7 +483,6 @@ function ChatInterface({
       }
     }
 
-    // Build fork context: user question + agent response, no extra padding
     const forkContent = userContent
       ? `<context>\nUser: ${userContent}\n\nAssistant: ${agentContent}\n</context>\n\n`
       : `<context>\nAssistant: ${agentContent}\n</context>\n\n`;
@@ -488,6 +491,38 @@ function ChatInterface({
     setInput(forkContent);
     setTimeout(() => textareaRef.current?.focus(), 100);
   }, [selectedProject, onNewSession, setInput, textareaRef, chatMessages]);
+
+  // Claude sessions fork for real: the server copies the transcript up to this
+  // reply into a derived session (shown under its parent in the sidebar) and
+  // we open it with an empty composer.
+  const handleForkFromMessage = useCallback(async (agentMessage: ChatMessage) => {
+    if (!selectedProject || isForking) return;
+    const parentSessionId = currentSessionId || selectedSession?.id || null;
+    const sessionProvider = (selectedSession?.__provider || provider) as LLMProvider;
+    if (!parentSessionId || sessionProvider !== 'claude') {
+      openNewSessionWithExchange(agentMessage);
+      return;
+    }
+
+    setIsForking(true);
+    try {
+      const messageId = typeof agentMessage.messageId === 'string' ? agentMessage.messageId : undefined;
+      const response = await api.forkSession(parentSessionId, { upToMessageId: messageId });
+      const payload = await response.json().catch(() => null);
+      const newSessionId: string | undefined = payload?.data?.sessionId;
+      if (!response.ok || !newSessionId) {
+        const reason = payload?.error?.message || payload?.error || response.statusText;
+        window.alert(t('fork.failed', { reason: String(reason || '') }));
+        return;
+      }
+      setInput('');
+      onNavigateToSession?.(newSessionId);
+    } catch (error) {
+      window.alert(t('fork.failed', { reason: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setIsForking(false);
+    }
+  }, [selectedProject, isForking, currentSessionId, selectedSession?.id, selectedSession?.__provider, provider, openNewSessionWithExchange, setInput, onNavigateToSession, t]);
 
   const handleRemoveImage = useCallback((index: number) => {
     setAttachedImages((previous) => previous.filter((_, currentIndex) => currentIndex !== index));

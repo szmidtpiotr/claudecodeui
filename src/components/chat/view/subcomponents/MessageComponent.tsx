@@ -591,11 +591,11 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, o
                     type="button"
                     onClick={() => onForkFromMessage(message)}
                     className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-gray-200/60 dark:hover:bg-gray-700/60 transition-colors"
-                    title="Fork: open new thread with this exchange as context"
-                    aria-label="Fork conversation from this response"
+                    title={t('fork.title')}
+                    aria-label={t('fork.ariaLabel')}
                   >
                     <GitFork className="h-3 w-3" />
-                    <span>Fork</span>
+                    <span>{t('fork.button')}</span>
                   </button>
                 )}
                 <span>{formattedTime}</span>
