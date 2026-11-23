@@ -286,6 +286,95 @@ function stripAnsiFormatting(text: string): string {
   return text.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
+const TASK_NOTIFICATION_PREFIX = '<task-notification>';
+
+/** Text payloads of a user-role row, as the history reader would show them. */
+function readUserRowTexts(raw: AnyRecord): string[] {
+  if (raw.message?.role !== 'user') {
+    return [];
+  }
+  const content = raw.message.content;
+  if (typeof content === 'string') {
+    return [content];
+  }
+  return Array.isArray(content)
+    ? content.filter((part: AnyRecord) => part?.type === 'text').map((part: AnyRecord) => String(part.text ?? ''))
+    : [];
+}
+
+/**
+ * A `<task-notification>` payload stored outside a user-role row:
+ * - a top-level `queue-operation` record (`enqueue` / `remove`), written when
+ *   the CLI consumes the notification inline during a running turn or the
+ *   session ends before it is delivered;
+ * - a `queued_command` attachment with `commandMode: 'task-notification'`,
+ *   which newer CLI builds write instead of a user-role turn.
+ */
+function readDetachedTaskNotification(raw: AnyRecord): string | null {
+  let text: unknown = null;
+  if (raw.type === 'queue-operation') {
+    text = raw.content;
+  } else if (raw.type === 'attachment' && raw.attachment?.type === 'queued_command') {
+    text = raw.attachment.prompt;
+  }
+  return typeof text === 'string' && text.trimStart().startsWith(TASK_NOTIFICATION_PREFIX) ? text : null;
+}
+
+/** Identifies one notification across the shapes it is written in. */
+function taskNotificationKey(text: string): string {
+  const toolUseId = extractTaggedContent(text, 'tool-use-id')?.trim();
+  if (toolUseId) {
+    return `tool:${toolUseId}`;
+  }
+  const taskIds = [...text.matchAll(/<task-id>([\s\S]*?)<\/task-id>/g)].map((match) => match[1].trim());
+  return taskIds.length > 0 ? `task:${taskIds.join(',')}` : `text:${text.trim()}`;
+}
+
+/**
+ * Turns background-task notifications that only exist as `queue-operation`
+ * records or `queued_command` attachments into user-role rows, so they render
+ * like the ones delivered as ordinary turns. Without this the result of a
+ * background agent or command reported that way never appears in history.
+ *
+ * A notification already present as a user-role row is left alone, and each
+ * one is surfaced once even when the CLI logged it in several shapes.
+ */
+export function recoverTaskNotificationRows(rawMessages: AnyRecord[]): AnyRecord[] {
+  const seen = new Set<string>();
+  for (const raw of rawMessages) {
+    if (raw.isMeta === true) {
+      continue;
+    }
+    for (const text of readUserRowTexts(raw)) {
+      if (text.trimStart().startsWith(TASK_NOTIFICATION_PREFIX)) {
+        seen.add(taskNotificationKey(text));
+      }
+    }
+  }
+
+  const result: AnyRecord[] = [];
+  for (const raw of rawMessages) {
+    const text = readDetachedTaskNotification(raw);
+    if (text === null) {
+      result.push(raw);
+      continue;
+    }
+    const key = taskNotificationKey(text);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({
+      type: 'user',
+      uuid: typeof raw.uuid === 'string' && raw.uuid ? raw.uuid : `task-notification:${key}`,
+      timestamp: raw.timestamp,
+      sessionId: raw.sessionId,
+      message: { role: 'user', content: text },
+    });
+  }
+  return result;
+}
+
 export class ClaudeSessionsProvider implements IProviderSessions {
   /**
    * Normalizes one Claude JSONL entry or live SDK stream event into the shared
@@ -574,7 +663,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       return { messages: [], total: 0, hasMore: false, offset: 0, limit: null };
     }
 
-    const rawMessages = Array.isArray(result) ? result : (result.messages || []);
+    const rawMessages = recoverTaskNotificationRows(Array.isArray(result) ? result : (result.messages || []));
 
     const toolResultMap = new Map<string, ClaudeToolResult>();
     for (const raw of rawMessages) {
