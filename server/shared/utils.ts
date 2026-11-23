@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import {
   access,
@@ -48,6 +48,24 @@ type NormalizedMessageInput =
     sessionId?: string | null;
     timestamp?: string | null;
   } & Record<string, unknown>;
+
+// ---------------------------
+//----------------- SECRET COMPARISON UTILITIES ------------
+/**
+ * Compares a caller-supplied credential against the expected secret in
+ * constant time. Both values are hashed first so neither the content nor the
+ * length of the secret leaks through response timing. A non-string candidate
+ * (a missing header, or a repeated query parameter parsed as an array) never
+ * matches. Used for the global `API_KEY` check in `server/middleware/auth.js`.
+ */
+export function secretsMatch(candidate: unknown, expected: string): boolean {
+  if (typeof candidate !== 'string') {
+    return false;
+  }
+  const candidateDigest = createHash('sha256').update(candidate).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(candidateDigest, expectedDigest);
+}
 
 // ---------------------------
 //----------------- HTTP HANDLER UTILITIES ------------
