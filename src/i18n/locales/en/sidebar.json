@@ -163,5 +163,12 @@
     "intoProject": "into",
     "movingSession": "Moving…",
     "staleHistoryNotice": "The conversation history still refers to files in the original project, so resuming it there may point at paths that no longer exist."
+  },
+  "recentSessions": {
+    "title": "Recent sessions",
+    "showFewer": "Show fewer",
+    "showMore": "Show more",
+    "empty": "No sessions yet.",
+    "running": "working"
   }
 }

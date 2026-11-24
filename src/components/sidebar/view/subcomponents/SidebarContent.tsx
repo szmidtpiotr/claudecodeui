@@ -134,6 +134,8 @@ type SidebarContentProps = {
   onShowVersionModal: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
+  // Cross-project "Recent sessions" section shown above the project list.
+  recentSessionsPanel?: ReactNode;
   t: TFunction;
 };
 
@@ -182,6 +184,7 @@ export default function SidebarContent({
   onShowVersionModal,
   onShowSettings,
   projectListProps,
+  recentSessionsPanel,
   t,
 }: SidebarContentProps) {
   const showConversationSearch = searchMode === 'conversations' && searchFilter.trim().length >= 2;
@@ -537,7 +540,10 @@ export default function SidebarContent({
             t={t}
           />
         ) : (
-          <SidebarProjectList {...projectListProps} />
+          <>
+            {searchFilter.trim().length === 0 && recentSessionsPanel}
+            <SidebarProjectList {...projectListProps} />
+          </>
         )}
       </ScrollArea>
 

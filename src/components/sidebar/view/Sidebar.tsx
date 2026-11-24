@@ -5,6 +5,7 @@ import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
 import { useVersionCheck } from '../../../hooks/useVersionCheck';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useSidebarController } from '../hooks/useSidebarController';
+import { useRunningSessionIds } from '../hooks/useRunningSessionIds';
 import { useUnreadSessions } from '../../../hooks/useUnreadSessions';
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { usePaletteOps } from '../../../contexts/PaletteOpsContext';
@@ -16,6 +17,7 @@ import type { UnreadSessionEntry } from '../../../hooks/useUnreadSessions';
 import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
 import SidebarModals from './subcomponents/SidebarModals';
+import SidebarRecentSessions, { type RecentSessionEntry } from './subcomponents/SidebarRecentSessions';
 import type { SidebarProjectListProps } from './subcomponents/SidebarProjectList';
 
 type TaskMasterSidebarContext = {
@@ -55,6 +57,7 @@ function Sidebar({
   const { tasksEnabled } = useTasksSettings();
   const paletteOps = usePaletteOps();
   const { unreadEntries, unreadCount, markRead, togglePin, pinnedSessionIds } = useUnreadSessions(projects);
+  const runningSessionIds = useRunningSessionIds();
 
   const {
     isSidebarCollapsed,
@@ -174,6 +177,24 @@ function Sidebar({
       handleSessionClick({ id: entry.sessionId, __provider: entry.provider }, entry.projectId);
     }
   };
+
+  const handleRecentSessionClick = (entry: RecentSessionEntry) => {
+    handleUnreadSessionClick({
+      sessionId: entry.sessionId,
+      sessionName: entry.sessionName,
+      projectId: entry.projectId,
+      projectName: entry.projectName,
+      lastActivity: entry.lastActivity,
+      provider: entry.provider,
+      pinned: false,
+    });
+  };
+
+  // Pinned entries stay in the unread list even after being read, so they are
+  // left out here: the dot means "new activity you have not opened".
+  const unreadSessionIds = new Set(
+    unreadEntries.filter((entry) => !entry.pinned).map((entry) => entry.sessionId),
+  );
 
   const projectListProps: SidebarProjectListProps = {
     projects,
@@ -354,6 +375,17 @@ function Sidebar({
             onShowVersionModal={() => setShowVersionModal(true)}
             onShowSettings={onShowSettings}
             projectListProps={projectListProps}
+            recentSessionsPanel={projects.length > 0 && (
+              <SidebarRecentSessions
+                projects={projects}
+                runningSessionIds={runningSessionIds}
+                unreadSessionIds={unreadSessionIds}
+                selectedSession={selectedSession}
+                currentTime={currentTime}
+                onSessionClick={handleRecentSessionClick}
+                t={t}
+              />
+            )}
             t={t}
           />
         </>
