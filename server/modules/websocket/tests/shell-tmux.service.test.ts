@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { selectIdleSessions, tmuxSessionName } from '@/modules/websocket/services/shell-tmux.service.js';
+import { isTerminalOutdated, selectIdleSessions, tmuxSessionName } from '@/modules/websocket/services/shell-tmux.service.js';
 
 const HOUR = 3600;
 const NOW = 1_000_000;
@@ -35,4 +35,16 @@ test('gives the same conversation the same tmux name, and a tmux-safe one', () =
   assert.equal(name, tmuxSessionName('/home/claude/projects/x.y_3f1c:abc'));
   assert.match(name, /^ccui-[0-9a-f]{16}$/);
   assert.notEqual(name, tmuxSessionName('/home/claude/projects/x.y_other'));
+});
+
+test('a terminal started before the last chat turn is outdated', () => {
+  assert.equal(isTerminalOutdated(1_000, 2_000), true);
+});
+
+test('a terminal started after the last chat turn is current', () => {
+  assert.equal(isTerminalOutdated(3_000, 2_000), false);
+});
+
+test('a terminal is current when the chat never touched the conversation', () => {
+  assert.equal(isTerminalOutdated(1_000, undefined), false);
 });

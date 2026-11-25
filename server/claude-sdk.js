@@ -31,6 +31,7 @@ import {
   notifyUserIfEnabled
 } from './services/notification-orchestrator.js';
 import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { markSessionChangedByChat } from './modules/websocket/index.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import {
   configureDerivedSessionsRuntime,
@@ -849,6 +850,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
   const { sessionId, sessionSummary } = options;
   // `newSessionId`: start a new session under this id (no resume).
   let capturedSessionId = sessionId || options.newSessionId || null;
+  // A terminal still open on this conversation holds its own copy of the
+  // history and will not see this turn; have the Shell tab restart it.
+  if (sessionId) {
+    markSessionChangedByChat(sessionId);
+  }
   if (capturedSessionId) {
     rememberSessionRunOptions(capturedSessionId, options);
   }

@@ -67,6 +67,8 @@ type TerminalShortcutsPanelProps = {
   /** Omitted where there is no project to save images into. */
   onImageFiles?: (files: File[]) => void;
   isUploadingImages?: boolean;
+  /** Pastes the clipboard (text or image) into the terminal. */
+  onPaste: () => void;
 };
 
 const preventFocusSteal = (e: React.PointerEvent) => e.preventDefault();
@@ -85,6 +87,7 @@ export default function TerminalShortcutsPanel({
   onModifiersChange,
   onImageFiles,
   isUploadingImages = false,
+  onPaste,
 }: TerminalShortcutsPanelProps) {
   const { t } = useTranslation('settings');
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -102,21 +105,6 @@ export default function TerminalShortcutsPanel({
     // History kept by tmux is left through the server, not through xterm.js.
     sendSocketMessage(wsRef.current, { type: 'scroll-bottom' });
   }, [terminalRef, wsRef]);
-
-  const pasteFromClipboard = useCallback(async () => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
-      return;
-    }
-
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text.length > 0) {
-        sendInput(text);
-      }
-    } catch {
-      // Ignore clipboard permission errors.
-    }
-  }, [sendInput]);
 
   const handleKeyPress = useCallback(
     (seq: string) => {
@@ -190,9 +178,7 @@ export default function TerminalShortcutsPanel({
         <button
           type="button"
           onPointerDown={preventFocusSteal}
-          onClick={() => {
-            void pasteFromClipboard();
-          }}
+          onClick={onPaste}
           disabled={!isConnected}
           className={KEY_BTN}
           title={pasteLabel}

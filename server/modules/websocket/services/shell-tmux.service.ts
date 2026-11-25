@@ -195,6 +195,63 @@ export function trackNewSessionClient(projectPath: string, sessionId: string, de
   }
 }
 
+// sessionId -> when the chat last ran a turn on that conversation.
+const changedByChatAt = new Map<string, number>();
+
+/**
+ * The chat and the terminal are two separate CLI processes on one
+ * conversation. A terminal that was already running keeps the history it
+ * loaded at start, so a turn sent from the chat never shows up in it (and its
+ * next turn would continue from the older state). Chat turns are recorded
+ * here; the Shell tab replaces a terminal that predates one.
+ */
+export function markSessionChangedByChat(sessionId: string): void {
+  changedByChatAt.set(sessionId, Date.now());
+}
+
+/** True when `created` (when the terminal started) is older than the last chat turn. */
+export function isTerminalOutdated(createdAtMs: number, chatTurnAtMs: number | undefined): boolean {
+  return chatTurnAtMs !== undefined && createdAtMs < chatTurnAtMs;
+}
+
+/**
+ * Closes the terminal of a conversation if the chat has run a turn on it since
+ * the terminal started, so the caller starts a fresh one that resumes the
+ * conversation with the full history. Returns whether a terminal was closed.
+ */
+export function closeTerminalIfOutdated(name: string, sessionId: string): boolean {
+  const chatTurnAt = changedByChatAt.get(sessionId);
+  if (chatTurnAt === undefined) {
+    return false;
+  }
+
+  let createdAtMs: number;
+  try {
+    const created = execFileSync(
+      'tmux',
+      ['-L', TMUX_SOCKET, 'display-message', '-p', '-t', `=${name}:`, '#{session_created}'],
+      { stdio: ['ignore', 'pipe', 'ignore'] }
+    ).toString().trim();
+    // tmux reports whole seconds; count the terminal as created at the end of
+    // that second so a turn in the same second does not close a new terminal.
+    createdAtMs = Number(created) * 1000 + 999;
+  } catch {
+    return false; // no such terminal
+  }
+
+  if (!Number.isFinite(createdAtMs) || !isTerminalOutdated(createdAtMs, chatTurnAt)) {
+    return false;
+  }
+
+  try {
+    execFileSync('tmux', ['-L', TMUX_SOCKET, 'kill-session', '-t', `=${name}`], { stdio: 'ignore' });
+  } catch {
+    return false;
+  }
+  console.log(`[INFO] Shell tmux: restarting terminal ${name} - the chat ran a turn on its conversation`);
+  return true;
+}
+
 /** Leaves tmux copy mode (history scrolling) so the live screen is shown again. */
 export function cancelTmuxCopyMode(name: string): void {
   execFile('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, '-X', 'cancel'], () => {});

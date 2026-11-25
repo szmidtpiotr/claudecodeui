@@ -13,6 +13,7 @@ import {
 } from '../constants/constants';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { useShellRuntime } from '../hooks/useShellRuntime';
+import { readClipboard } from '../utils/clipboardImage';
 import { applyStickyModifiers, type StickyModifiers } from '../utils/modifiers';
 import { sendSocketMessage } from '../utils/socket';
 import { api } from '../../../utils/api';
@@ -23,6 +24,7 @@ import ShellConnectionOverlay from './subcomponents/ShellConnectionOverlay';
 import ShellEmptyState from './subcomponents/ShellEmptyState';
 import ShellHeader from './subcomponents/ShellHeader';
 import ShellMinimalView from './subcomponents/ShellMinimalView';
+import PasteCatcher from './subcomponents/PasteCatcher';
 import TerminalShortcutsPanel from './subcomponents/TerminalShortcutsPanel';
 
 type CliPromptOption = { number: string; label: string };
@@ -142,6 +144,30 @@ export default function Shell({
         }
       : null;
   }, [attachImages, imageProjectId]);
+
+  // Paste button: text or a screenshot. Where the browser refuses to hand over
+  // the clipboard (plain HTTP, denied permission) a field to paste into opens.
+  const [pasteCatcherOpen, setPasteCatcherOpen] = useState(false);
+  const pasteText = useCallback(
+    (text: string) => {
+      terminalRef.current?.paste(text);
+      terminalRef.current?.focus();
+    },
+    [terminalRef],
+  );
+  const pasteFromClipboard = useCallback(async () => {
+    const content = await readClipboard();
+    if (content.kind === 'image' && imageProjectId) {
+      void attachImages([content.file]);
+    } else if (content.kind === 'text') {
+      pasteText(content.text);
+    } else if (content.kind === 'unavailable') {
+      setPasteCatcherOpen(true);
+    }
+  }, [attachImages, imageProjectId, pasteText]);
+  const handlePasteButton = useCallback(() => {
+    void pasteFromClipboard();
+  }, [pasteFromClipboard]);
 
   useEffect(() => {
     if (!imageError) {
@@ -323,7 +349,7 @@ export default function Shell({
     return (
       <div
         ref={rootRef}
-        className="flex h-full w-full flex-col"
+        className="relative flex h-full w-full flex-col"
         style={{ paddingBottom: keyboardInset }}
       >
         <div className="min-h-0 flex-1">
@@ -343,7 +369,11 @@ export default function Shell({
           isConnected={isConnected}
           modifiers={modifiers}
           onModifiersChange={updateModifiers}
+          onPaste={handlePasteButton}
         />
+        {pasteCatcherOpen && (
+          <PasteCatcher onText={pasteText} onImages={() => {}} onClose={() => setPasteCatcherOpen(false)} />
+        )}
       </div>
     );
   }
@@ -446,6 +476,17 @@ export default function Shell({
           </div>
         )}
 
+        {pasteCatcherOpen && (
+          <PasteCatcher
+            onText={pasteText}
+            onImages={(files) => void attachImages(files)}
+            onClose={() => {
+              setPasteCatcherOpen(false);
+              terminalRef.current?.focus();
+            }}
+          />
+        )}
+
         {sudoPrompt && isConnected && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-4">
             <form
@@ -511,6 +552,7 @@ export default function Shell({
         onModifiersChange={updateModifiers}
         onImageFiles={imageProjectId ? (files) => void attachImages(files) : undefined}
         isUploadingImages={isUploadingImages}
+        onPaste={handlePasteButton}
       />
     </div>
   );

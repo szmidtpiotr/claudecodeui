@@ -9,6 +9,7 @@ import { parseIncomingJsonObject } from '@/shared/utils.js';
 import {
   buildTmuxClientArgs,
   cancelTmuxCopyMode,
+  closeTerminalIfOutdated,
   isTmuxEnabled,
   resolveNewSessionId,
   tmuxSessionName,
@@ -237,6 +238,19 @@ export function handleShellConnection(
           // each websocket gets its own tmux client.
           tmuxName = tmuxSessionName(`${projectPath}_${newClaudeSessionId ?? sessionId ?? 'default'}`);
           ptySessionKey = `${ptySessionKey}#${tmuxName}#${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+          // The chat wrote to this conversation after the terminal started:
+          // start a new terminal that resumes it with the full history.
+          const conversationId = newClaudeSessionId ?? sessionId;
+          if (conversationId && closeTerminalIfOutdated(tmuxName, conversationId)) {
+            // A conversation first started here has a history now: resume it
+            // rather than asking the CLI to create its id a second time.
+            if (newClaudeSessionId) {
+              data.sessionId = newClaudeSessionId;
+              data.hasSession = true;
+              newClaudeSessionId = null;
+            }
+          }
         }
 
         if (isLoginCommand) {

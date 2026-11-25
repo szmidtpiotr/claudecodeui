@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+
 import type { Project } from '../../../types/app';
 import {
   CODEX_DEVICE_AUTH_URL,
@@ -17,33 +18,9 @@ import { isCodexLoginCommand } from '../utils/auth';
 import { sendSocketMessage } from '../utils/socket';
 import { ensureXtermFocusStyles } from '../utils/terminalStyles';
 import { attachTouchScroll } from '../utils/touchScroll';
-
-const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-
-const imageFilesFrom = (list: FileList | null | undefined): File[] =>
-  Array.from(list ?? []).filter((file) => IMAGE_MIME_TYPES.includes(file.type));
-
-/** Reads an image off the clipboard, if the browser allows and one is there. */
-async function readClipboardImage(): Promise<File | null> {
-  if (typeof navigator === 'undefined' || !navigator.clipboard?.read) {
-    return null;
-  }
-
-  try {
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const type = item.types.find((candidate) => IMAGE_MIME_TYPES.includes(candidate));
-      if (type) {
-        const blob = await item.getType(type);
-        return new File([blob], `clipboard.${type.split('/')[1]}`, { type });
-      }
-    }
-  } catch {
-    // No permission, or nothing readable on the clipboard.
-  }
-
-  return null;
-}
+import { attachImeDirectInput } from '../utils/imeDirectInput';
+import { imageFilesFrom, readClipboard } from '../utils/clipboardImage';
+import { hasSoftKeyboard } from '../../../utils/device';
 
 // CLIs running inside the pty (e.g. `claude auth login`'s "press c to copy"
 // device-flow prompt) write to the clipboard via an OSC 52 escape sequence,
@@ -243,6 +220,9 @@ export function useShellTerminal({
     terminalContainer.addEventListener('drop', handleTerminalDrop);
 
     const detachTouchScroll = attachTouchScroll(terminalContainer, () => terminalRef.current);
+    const detachImeDirectInput = hasSoftKeyboard()
+      ? attachImeDirectInput(terminalContainer, nextTerminal)
+      : () => {};
 
     nextTerminal.attachCustomKeyEventHandler((event) => {
       const activeAuthUrl = isCodexLoginCommand(initialCommandRef.current)
@@ -286,34 +266,16 @@ export function useShellTerminal({
         event.preventDefault();
         event.stopPropagation();
 
-        const pasteText = () => {
-          if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
-            return;
+        void readClipboard().then((content) => {
+          if (content.kind === 'image' && onImageFilesRef?.current) {
+            onImageFilesRef.current([content.file]);
+          } else if (content.kind === 'text') {
+            sendSocketMessage(wsRef.current, {
+              type: 'input',
+              data: content.text,
+            });
           }
-
-          navigator.clipboard
-            .readText()
-            .then((text) => {
-              sendSocketMessage(wsRef.current, {
-                type: 'input',
-                data: text,
-              });
-            })
-            .catch(() => {});
-        };
-
-        // A copied screenshot has no text form: look for an image first.
-        if (onImageFilesRef?.current) {
-          void readClipboardImage().then((image) => {
-            if (image && onImageFilesRef.current) {
-              onImageFilesRef.current([image]);
-              return;
-            }
-            pasteText();
-          });
-        } else {
-          pasteText();
-        }
+        });
 
         return false;
       }
@@ -374,6 +336,7 @@ export function useShellTerminal({
       terminalContainer.removeEventListener('dragover', handleTerminalDragOver);
       terminalContainer.removeEventListener('drop', handleTerminalDrop);
       detachTouchScroll();
+      detachImeDirectInput();
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current !== null) {
         window.clearTimeout(resizeTimeoutRef.current);
