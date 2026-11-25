@@ -161,7 +161,16 @@
       "send": "Send now — Claude reads it at its next step",
       "queueInstead": "Queue for after this turn",
       "placeholder": "Tell Claude something now — it reads it at its next step"
-    }
+    },
+    "imageFromDevice": "From device",
+    "takePhoto": "Take a photo",
+    "capturePhoto": "Capture",
+    "switchCamera": "Switch camera",
+    "close": "Close",
+    "cameraNeedsHttps": "The browser blocks the camera here. It only works over HTTPS (or on localhost).",
+    "cameraDenied": "Camera access was denied. Allow it in the browser and try again.",
+    "cameraNotFound": "No camera found.",
+    "cameraError": "Could not start the camera."
   },
   "thinkingMode": {
     "selector": {

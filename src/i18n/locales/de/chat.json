@@ -118,7 +118,16 @@
     "clickToChangeMode": "Klicken, um den Berechtigungsmodus zu ändern (oder Tab in der Eingabe drücken)",
     "showAllCommands": "Alle Befehle anzeigen",
     "clearInput": "Eingabe leeren",
-    "scrollToBottom": "Nach unten scrollen"
+    "scrollToBottom": "Nach unten scrollen",
+    "imageFromDevice": "Vom Gerät",
+    "takePhoto": "Foto aufnehmen",
+    "capturePhoto": "Auslösen",
+    "switchCamera": "Kamera wechseln",
+    "close": "Schließen",
+    "cameraNeedsHttps": "Der Browser blockiert hier die Kamera. Sie funktioniert nur über HTTPS (oder localhost).",
+    "cameraDenied": "Kamerazugriff verweigert. Im Browser erlauben und erneut versuchen.",
+    "cameraNotFound": "Keine Kamera gefunden.",
+    "cameraError": "Kamera konnte nicht gestartet werden."
   },
   "thinkingMode": {
     "selector": {

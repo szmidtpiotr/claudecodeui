@@ -10,12 +10,13 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, ArrowDownIcon, ArrowUpIcon, ClockIcon, ListIcon, MicIcon, MicOffIcon, LoaderIcon } from 'lucide-react';
+import { MessageSquareIcon, XIcon, ArrowDownIcon, ArrowUpIcon, ClockIcon, ListIcon, MicIcon, MicOffIcon, LoaderIcon } from 'lucide-react';
 import type { ChatMessage, PendingPermissionRequest, PermissionMode, Provider } from '../../types/types';
 import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
+import ImageAttachButton from './ImageAttachButton';
 import PastedTextAttachment from './PastedTextAttachment';
 import type { PastedTextBlock } from '../../utils/pastedText';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
@@ -100,6 +101,7 @@ interface ChatComposerProps {
   getRootProps: (...args: unknown[]) => Record<string, unknown>;
   getInputProps: (...args: unknown[]) => Record<string, unknown>;
   openImagePicker: () => void;
+  onImageFiles: (files: File[]) => void;
   inputHighlightRef: RefObject<HTMLDivElement>;
   renderInputWithMentions: (text: string) => ReactNode;
   textareaRef: RefObject<HTMLTextAreaElement>;
@@ -179,6 +181,7 @@ const ChatComposer = memo(function ChatComposer({
   getRootProps,
   getInputProps,
   openImagePicker,
+  onImageFiles,
   inputHighlightRef,
   renderInputWithMentions,
   textareaRef,
@@ -494,12 +497,7 @@ const ChatComposer = memo(function ChatComposer({
 
         <PromptInputFooter className="justify-start gap-2">
           <PromptInputTools className="flex-1 min-w-0 overflow-x-clip">
-            <PromptInputButton
-              tooltip={{ content: t('input.attachImages') }}
-              onClick={openImagePicker}
-            >
-              <ImageIcon />
-            </PromptInputButton>
+            <ImageAttachButton openImagePicker={openImagePicker} onImageFiles={onImageFiles} />
 
             {onToggleDictation && (
               <PromptInputButton

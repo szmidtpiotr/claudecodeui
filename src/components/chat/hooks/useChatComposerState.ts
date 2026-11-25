@@ -1780,6 +1780,7 @@ export function useChatComposerState({
     getInputProps,
     isDragActive,
     openImagePicker: open,
+    addImageFiles: handleImageFiles,
     queuedDraft,
     editQueuedDraft,
     deleteQueuedDraft,
