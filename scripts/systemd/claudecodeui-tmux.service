@@ -22,7 +22,7 @@ Type=forking
 User=claude
 Group=claude
 WorkingDirectory=/home/claude
-ExecStart=/usr/bin/tmux -L ccui -f /home/claude/.config/claudecodeui/tmux.conf start-server ; set-option -s exit-empty off
+ExecStart=/usr/bin/tmux -L ccui -f /home/claude/.config/claudecodeui/tmux.conf start-server \; set-option -s exit-empty off
 ExecStop=/usr/bin/tmux -L ccui kill-server
 Restart=on-failure
 
