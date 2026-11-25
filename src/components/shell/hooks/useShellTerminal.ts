@@ -19,7 +19,7 @@ import { sendSocketMessage } from '../utils/socket';
 import { ensureXtermFocusStyles } from '../utils/terminalStyles';
 import { attachTouchScroll } from '../utils/touchScroll';
 import { attachImeDirectInput } from '../utils/imeDirectInput';
-import { imageFilesFrom, readClipboard } from '../utils/clipboardImage';
+import { imageFilesFrom } from '../utils/clipboardImage';
 import { hasSoftKeyboard } from '../../../utils/device';
 
 // CLIs running inside the pty (e.g. `claude auth login`'s "press c to copy"
@@ -279,21 +279,11 @@ export function useShellTerminal({
         (event.ctrlKey || event.metaKey) &&
         event.key?.toLowerCase() === 'v'
       ) {
-        // Block native paste so data is only injected after clipboard-read resolves.
-        event.preventDefault();
-        event.stopPropagation();
-
-        void readClipboard().then((content) => {
-          if (content.kind === 'image' && onImageFilesRef?.current) {
-            onImageFilesRef.current([content.file]);
-          } else if (content.kind === 'text') {
-            sendSocketMessage(wsRef.current, {
-              type: 'input',
-              data: content.text,
-            });
-          }
-        });
-
+        // Leave the paste to the browser: its paste event carries text and
+        // images alike and works without clipboard permission (plain HTTP
+        // included). xterm.js pastes the text; an image is picked up by the
+        // paste listener above and attached as a file. Returning false only
+        // keeps xterm.js from sending a literal Ctrl+V to the program.
         return false;
       }
 
