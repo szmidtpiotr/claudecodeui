@@ -14,6 +14,7 @@ import {
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { useShellRuntime } from '../hooks/useShellRuntime';
 import { readClipboard } from '../utils/clipboardImage';
+import { IME_RESET_EVENT } from '../utils/imeDirectInput';
 import { applyStickyModifiers, type StickyModifiers } from '../utils/modifiers';
 import { sendSocketMessage } from '../utils/socket';
 import { api } from '../../../utils/api';
@@ -59,7 +60,7 @@ export default function Shell({
   const onOutputRef = useRef<(() => void) | null>(null);
   const sudoInputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const keyboardInset = useKeyboardInset(rootRef);
+  const { inset: keyboardInset, debug: keyboardDebug } = useKeyboardInset(rootRef);
 
   // On-screen CTRL / ALT. Mirrored in a ref because the terminal's input
   // handler is created once and must read the current value.
@@ -74,8 +75,17 @@ export default function Shell({
     if (!active.ctrl && !active.alt) {
       return data;
     }
+    // A phone keyboard may hand over more than the one new letter (it also
+    // retypes what it corrected); the modifier belongs to the last character.
+    const head = data.slice(0, -1);
+    const key = data.slice(-1);
     updateModifiers({ ctrl: false, alt: false });
-    return applyStickyModifiers(data, active);
+    // The letter became a control key, not text: the keyboard must not keep
+    // it as the start of a word and later "correct" it with backspaces.
+    window.setTimeout(() => {
+      terminalRef.current?.textarea?.dispatchEvent(new Event(IME_RESET_EVENT));
+    }, 0);
+    return head + applyStickyModifiers(key, active);
   });
 
   const [isUploadingImages, setIsUploadingImages] = useState(false);
@@ -537,6 +547,12 @@ export default function Shell({
           </div>
         )}
       </div>
+
+      {keyboardDebug && (
+        <div className="shrink-0 px-3 font-mono text-[10px] text-yellow-300">
+          {JSON.stringify(keyboardDebug)}
+        </div>
+      )}
 
       {imageError && (
         <div className="shrink-0 px-3 pb-1 text-xs text-red-400" role="alert">

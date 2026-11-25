@@ -321,7 +321,10 @@ export function handleShellConnection(
             name: tmuxName,
             cwd: resolvedProjectPath,
             command: shellCommand,
-            env: sessionEnv,
+            // Claude Code's full-screen renderer scrolls by moving parts of the
+            // screen; relayed through tmux to xterm.js that left stale
+            // characters in the first columns. Repainting whole frames avoids it.
+            env: { ...sessionEnv, CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT: '1' },
           });
           if (trackedNewSession) {
             trackNewSessionClient(trackedNewSession.projectPath, trackedNewSession.sessionId, 1);

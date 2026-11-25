@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { imageFilesFrom } from '../../utils/clipboardImage';
+import { IMAGE_MIME_TYPES, imageFilesFrom } from '../../utils/clipboardImage';
 
 type PasteCatcherProps = {
   onText: (text: string) => void;
@@ -9,22 +9,53 @@ type PasteCatcherProps = {
   onClose: () => void;
 };
 
+/** Turns <img> elements a keyboard inserted into the field into image files. */
+async function filesFromInsertedImages(field: HTMLElement): Promise<File[]> {
+  const files: File[] = [];
+
+  for (const image of Array.from(field.querySelectorAll('img'))) {
+    try {
+      const blob = await (await fetch(image.src)).blob();
+      if (IMAGE_MIME_TYPES.includes(blob.type)) {
+        files.push(new File([blob], `clipboard.${blob.type.split('/')[1]}`, { type: blob.type }));
+      }
+    } catch {
+      // A source the page may not read (content:// URI): nothing to attach.
+    }
+  }
+
+  return files;
+}
+
 /**
  * Fallback for pasting when the page may not read the clipboard itself (plain
  * HTTP, or permission refused): a field the user pastes into with the system
- * "Paste" action, which hands over text and images alike.
+ * "Paste" action or the keyboard's clipboard row.
+ *
+ * It is an editable block, not a text box: Android offers to paste a picture
+ * only into rich-text fields.
  */
 export default function PasteCatcher({ onText, onImages, onClose }: PasteCatcherProps) {
   const { t } = useTranslation('chat');
-  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const doneRef = useRef(false);
 
   useEffect(() => {
     fieldRef.current?.focus();
   }, []);
 
+  const finish = (deliver: () => void) => {
+    if (doneRef.current) {
+      return;
+    }
+    doneRef.current = true;
+    deliver();
+    onClose();
+  };
+
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-4"
+      className="absolute inset-0 z-30 flex items-start justify-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
@@ -40,27 +71,41 @@ export default function PasteCatcher({ onText, onImages, onClose }: PasteCatcher
               'The browser does not let this page read the clipboard. Press and hold the field below and choose "Paste" - text or a screenshot.',
           })}
         </p>
-        <textarea
+        <div
           ref={fieldRef}
-          rows={3}
-          className="mb-3 w-full rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-label={t('shell.pasteCatcher.title', { defaultValue: 'Paste here' })}
+          className="mb-3 max-h-40 min-h-[4.5rem] w-full overflow-auto rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 [&_img]:max-h-24"
           onPaste={(event) => {
-            event.preventDefault();
             const images = imageFilesFrom(event.clipboardData.files);
             if (images.length > 0) {
-              onImages(images);
-            } else {
-              const text = event.clipboardData.getData('text/plain');
-              if (text) onText(text);
+              event.preventDefault();
+              finish(() => onImages(images));
+              return;
             }
-            onClose();
+
+            const text = event.clipboardData.getData('text/plain');
+            if (text) {
+              event.preventDefault();
+              finish(() => onText(text));
+            }
+            // Otherwise let the browser insert whatever it has; onInput picks it up.
           }}
-          // A keyboard's clipboard chip inserts text without a paste event.
-          onChange={(event) => {
-            if (event.target.value) {
-              onText(event.target.value);
-              onClose();
-            }
+          // The keyboard's clipboard row inserts content without a paste event.
+          onInput={(event) => {
+            const field = event.currentTarget;
+            void filesFromInsertedImages(field).then((images) => {
+              if (images.length > 0) {
+                finish(() => onImages(images));
+                return;
+              }
+              const text = field.innerText.trim();
+              if (text && field.querySelectorAll('img').length === 0) {
+                finish(() => onText(text));
+              }
+            });
           }}
         />
         <div className="flex justify-end">

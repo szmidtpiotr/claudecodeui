@@ -2,6 +2,9 @@ import type { Terminal } from '@xterm/xterm';
 
 const DEL = '\x7f';
 
+/** Dispatched on the terminal's textarea to forget the text typed so far. */
+export const IME_RESET_EVENT = 'ccui-ime-reset';
+
 /**
  * What to type so a program that already received `previous` ends up with
  * `next`: backspaces for the part that changed, then the new tail.
@@ -112,8 +115,10 @@ export function attachImeDirectInput(container: HTMLElement, terminal: Terminal)
   container.addEventListener('keydown', handleKeyDown, options);
   container.addEventListener('input', handleInput, options);
   container.addEventListener('focusin', resync, options);
+  textarea.addEventListener(IME_RESET_EVENT, resetTextarea);
 
   return () => {
+    textarea.removeEventListener(IME_RESET_EVENT, resetTextarea);
     container.removeEventListener('compositionstart', hideFromXterm, options);
     container.removeEventListener('compositionupdate', hideFromXterm, options);
     container.removeEventListener('compositionend', hideFromXterm, options);
