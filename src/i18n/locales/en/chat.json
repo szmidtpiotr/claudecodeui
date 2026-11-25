@@ -334,5 +334,12 @@
     "parentFallback": "the parent session",
     "task": "Task",
     "context": "Context"
+  },
+  "pastedText": {
+    "title": "Pasted text #{{id}}",
+    "size": "{{lines}} lines · {{chars}} characters",
+    "preview": "Preview",
+    "hide": "Hide",
+    "remove": "Remove pasted text"
   }
 }

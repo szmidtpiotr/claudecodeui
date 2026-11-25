@@ -183,6 +183,8 @@ function ChatInterface({
     selectFile,
     attachedImages,
     setAttachedImages,
+    pastedBlocks,
+    removePastedBlock,
     uploadingImages,
     imageErrors,
     getRootProps,
@@ -704,6 +706,8 @@ function ChatInterface({
           isDragActive={isDragActive}
           attachedImages={attachedImages}
           onRemoveImage={handleRemoveImage}
+          pastedBlocks={pastedBlocks}
+          onRemovePastedBlock={removePastedBlock}
           uploadingImages={uploadingImages}
           imageErrors={imageErrors}
           showFileDropdown={showFileDropdown}

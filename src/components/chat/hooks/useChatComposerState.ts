@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -34,6 +34,17 @@ import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import { useQueuedPrompt } from './useQueuedPrompt';
 import { useSteeredMessages } from './useSteeredMessages';
 import { hasSoftKeyboard } from '../../../utils/device';
+import { readPasteSettings } from '../../../hooks/usePasteSettings';
+import {
+  type PastedTextBlock,
+  blocksInInput,
+  expandPastedText,
+  nextPastedTextId,
+  parseStoredBlocks,
+  pastedTextMarker,
+  removePastedTextMarker,
+  shouldCollapsePaste,
+} from '../utils/pastedText';
 
 type PendingViewSession = {
   startedAt: number;
@@ -363,6 +374,14 @@ export function useChatComposerState({
     return '';
   });
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
+  // Long pastes held out of the textarea; a marker in the input stands for each.
+  const [pastedBlocks, setPastedBlocks] = useState<PastedTextBlock[]>(() => (
+    typeof window !== 'undefined' && selectedProject
+      ? parseStoredBlocks(safeLocalStorage.getItem(`draft_pastes_${selectedProject.projectId}`))
+      : []
+  ));
+  const pastedBlocksRef = useRef<PastedTextBlock[]>(pastedBlocks);
+  pastedBlocksRef.current = pastedBlocks;
   // Read by the async image snapshot step to know how many slots are still free.
   const attachedImagesRef = useRef<File[]>(attachedImages);
   attachedImagesRef.current = attachedImages;
@@ -786,6 +805,29 @@ export function useChatComposerState({
         handleImageFiles(pastedImages);
       }
 
+      // A long text paste becomes a block; only its marker goes into the textarea.
+      const pastedText = pastedImages.length === 0 ? event.clipboardData.getData('text/plain') : '';
+      const pasteSettings = readPasteSettings();
+      if (pastedText && pasteSettings.collapseLongPastes && shouldCollapsePaste(pastedText, pasteSettings)) {
+        event.preventDefault();
+        const textarea = event.currentTarget;
+        const block: PastedTextBlock = { id: nextPastedTextId(pastedBlocksRef.current), text: pastedText };
+        const marker = pastedTextMarker(block);
+        const current = inputValueRef.current;
+        const start = textarea.selectionStart ?? current.length;
+        const end = textarea.selectionEnd ?? start;
+        const next = current.slice(0, start) + marker + current.slice(end);
+        pastedBlocksRef.current = [...pastedBlocksRef.current, block];
+        setPastedBlocks(pastedBlocksRef.current);
+        setInput(next);
+        inputValueRef.current = next;
+        const caret = start + marker.length;
+        requestAnimationFrame(() => {
+          textarea.setSelectionRange(caret, caret);
+        });
+        return;
+      }
+
       if (items.length === 0 && event.clipboardData.files.length > 0) {
         const files = Array.from(event.clipboardData.files);
         const imageFiles = files.filter((file) => file.type.startsWith('image/'));
@@ -931,7 +973,8 @@ export function useChatComposerState({
       submitOptions?: SubmitOptions,
     ) => {
       event.preventDefault();
-      const currentInput = inputValueRef.current;
+      // Long pastes travel as markers in the textarea; the message carries their text.
+      const currentInput = expandPastedText(inputValueRef.current, pastedBlocksRef.current);
       if (!currentInput.trim() || !selectedProject) {
         return;
       }
@@ -1407,6 +1450,9 @@ export function useChatComposerState({
       return;
     }
     const savedInput = safeLocalStorage.getItem(`draft_input_${selectedProjectId}`) || '';
+    const savedPastes = parseStoredBlocks(safeLocalStorage.getItem(`draft_pastes_${selectedProjectId}`));
+    pastedBlocksRef.current = savedPastes;
+    setPastedBlocks(savedPastes);
     setInput((previous) => {
       const next = previous === savedInput ? previous : savedInput;
       inputValueRef.current = next;
@@ -1426,6 +1472,41 @@ export function useChatComposerState({
       safeLocalStorage.removeItem(`draft_input_${selectedProjectId}`);
     }
   }, [input, selectedProjectId]);
+
+  // Keep only blocks whose marker is still in the draft; an empty input (sent
+  // or cleared) drops them all.
+  useEffect(() => {
+    if (!selectedProjectId) {
+      return;
+    }
+    const key = `draft_pastes_${selectedProjectId}`;
+    if (input === '') {
+      if (pastedBlocksRef.current.length > 0) {
+        pastedBlocksRef.current = [];
+        setPastedBlocks([]);
+      }
+      safeLocalStorage.removeItem(key);
+      return;
+    }
+    const live = blocksInInput(input, pastedBlocks);
+    if (live.length > 0) {
+      safeLocalStorage.setItem(key, JSON.stringify(live));
+    } else {
+      safeLocalStorage.removeItem(key);
+    }
+  }, [input, pastedBlocks, selectedProjectId]);
+
+  const visiblePastedBlocks = useMemo(() => blocksInInput(input, pastedBlocks), [input, pastedBlocks]);
+
+  const removePastedBlock = useCallback((id: number) => {
+    const block = pastedBlocksRef.current.find((candidate) => candidate.id === id);
+    if (!block) return;
+    const next = removePastedTextMarker(inputValueRef.current, block);
+    pastedBlocksRef.current = pastedBlocksRef.current.filter((candidate) => candidate.id !== id);
+    setPastedBlocks(pastedBlocksRef.current);
+    setInput(next);
+    inputValueRef.current = next;
+  }, []);
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -1691,6 +1772,8 @@ export function useChatComposerState({
     selectFile,
     attachedImages,
     setAttachedImages,
+    pastedBlocks: visiblePastedBlocks,
+    removePastedBlock,
     uploadingImages,
     imageErrors,
     getRootProps,

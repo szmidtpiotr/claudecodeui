@@ -15,6 +15,7 @@ import type {
 } from '../types';
 import QuickSettingsSection from './QuickSettingsSection';
 import QuickSettingsToggleRow from './QuickSettingsToggleRow';
+import QuickSettingsPasteRows from './QuickSettingsPasteRows';
 
 type QuickSettingsContentProps = {
   isDarkMode: boolean;
@@ -71,6 +72,7 @@ export default function QuickSettingsContent({
         <p className="ml-3 text-xs text-gray-500 dark:text-gray-400">
           {t('quickSettings.sendByCtrlEnterDescription')}
         </p>
+        <QuickSettingsPasteRows />
       </QuickSettingsSection>
     </div>
   );

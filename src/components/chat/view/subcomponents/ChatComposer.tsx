@@ -16,6 +16,8 @@ import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import CommandMenu from './CommandMenu';
 import ClaudeStatus from './ClaudeStatus';
 import ImageAttachment from './ImageAttachment';
+import PastedTextAttachment from './PastedTextAttachment';
+import type { PastedTextBlock } from '../../utils/pastedText';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import { MCP_ELICITATION_TOOL_NAME } from '../../tools/configs/permissionPanelRegistry';
 import QueuedMessageCard from './QueuedMessageCard';
@@ -81,6 +83,8 @@ interface ChatComposerProps {
   isDragActive: boolean;
   attachedImages: File[];
   onRemoveImage: (index: number) => void;
+  pastedBlocks: PastedTextBlock[];
+  onRemovePastedBlock: (id: number) => void;
   uploadingImages: Map<string, number>;
   imageErrors: Map<string, string>;
   showFileDropdown: boolean;
@@ -158,6 +162,8 @@ const ChatComposer = memo(function ChatComposer({
   isDragActive,
   attachedImages,
   onRemoveImage,
+  pastedBlocks,
+  onRemovePastedBlock,
   uploadingImages,
   imageErrors,
   showFileDropdown,
@@ -444,6 +450,20 @@ const ChatComposer = memo(function ChatComposer({
                     />
                   ))}
                 </div>
+              </div>
+            </PromptInputHeader>
+          )}
+
+          {pastedBlocks.length > 0 && (
+            <PromptInputHeader>
+              <div className="flex flex-col gap-1.5 rounded-xl bg-muted/40 p-2">
+                {pastedBlocks.map((block) => (
+                  <PastedTextAttachment
+                    key={block.id}
+                    block={block}
+                    onRemove={() => onRemovePastedBlock(block.id)}
+                  />
+                ))}
               </div>
             </PromptInputHeader>
           )}
