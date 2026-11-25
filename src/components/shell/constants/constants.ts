@@ -18,7 +18,10 @@ export const TERMINAL_OPTIONS: ITerminalOptions = {
   fontFamily: 'Menlo, Monaco, "Courier New", monospace',
   allowProposedApi: true,
   allowTransparency: false,
-  convertEol: true,
+  // Must stay off: a pty already sends CR LF for a new line, and tmux uses a
+  // bare LF to move down while keeping the column. Turning LF into CR LF put
+  // that text at column 0 and left stray characters there after scrolling.
+  convertEol: false,
   scrollback: 10000,
   tabStopWidth: 4,
   windowsMode: false,

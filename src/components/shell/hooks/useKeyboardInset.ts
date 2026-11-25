@@ -19,6 +19,14 @@ export type KeyboardInsetDebug = {
   viewportTop: number;
   innerHeight: number;
   elementBottom: number;
+  elementTop: number;
+  clientHeight: number;
+  outerHeight: number;
+  screenHeight: number;
+  scrollY: number;
+  pageTop: number;
+  safeNow: number;
+  dpr: number;
 };
 
 /**
@@ -40,7 +48,9 @@ export function useKeyboardInset(elementRef: RefObject<HTMLElement>): {
       return undefined;
     }
 
-    const showDebug = new URLSearchParams(window.location.search).has('kbdebug');
+    const showDebug =
+      new URLSearchParams(window.location.search).has('kbdebug') ||
+      import.meta.env.VITE_KB_DEBUG === '1';
     // The navigation bar height, as seen while the keyboard is closed. On
     // edge-to-edge Android the visual viewport with the keyboard open still
     // reaches down by that much behind the keyboard, so it has to be added.
@@ -73,6 +83,14 @@ export function useKeyboardInset(elementRef: RefObject<HTMLElement>): {
           viewportTop: Math.round(viewport.offsetTop),
           innerHeight: window.innerHeight,
           elementBottom: Math.round(elementBottom),
+          elementTop: Math.round(element.getBoundingClientRect().top),
+          clientHeight: document.documentElement.clientHeight,
+          outerHeight: window.outerHeight,
+          screenHeight: window.screen.height,
+          scrollY: Math.round(window.scrollY),
+          pageTop: Math.round(viewport.pageTop),
+          safeNow: readSafeAreaBottom(),
+          dpr: window.devicePixelRatio,
         });
       }
     };
