@@ -319,10 +319,17 @@ export function handleShellConnection(
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
         if (tmuxName) {
           shell = 'tmux';
+          // The terminal is filed under its conversation. A fresh CLI started
+          // as a fallback (resume declined at the trust prompt, or failed)
+          // would stay attached there as if it were that conversation.
+          const fallback = ' || claude';
+          const tmuxCommand = shellCommand.endsWith(fallback)
+            ? `${shellCommand.slice(0, -fallback.length)} || { echo; echo "The conversation was not resumed. Open the Shell tab again to retry."; sleep 6; }`
+            : shellCommand;
           shellArgs = buildTmuxClientArgs({
             name: tmuxName,
             cwd: resolvedProjectPath,
-            command: shellCommand,
+            command: tmuxCommand,
             env: sessionEnv,
           });
           if (trackedNewSession) {
