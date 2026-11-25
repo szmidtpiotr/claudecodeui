@@ -11,8 +11,11 @@ import {
   PROMPT_OPTION_SCAN_LINES,
   SHELL_RESTART_DELAY_MS,
 } from '../constants/constants';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { useShellRuntime } from '../hooks/useShellRuntime';
+import { applyStickyModifiers, type StickyModifiers } from '../utils/modifiers';
 import { sendSocketMessage } from '../utils/socket';
+import { api } from '../../../utils/api';
 import { getSessionDisplayName } from '../utils/auth';
 import { detectSudoPrompt } from '../utils/sudo';
 
@@ -53,6 +56,29 @@ export default function Shell({
   const promptCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onOutputRef = useRef<(() => void) | null>(null);
   const sudoInputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const keyboardInset = useKeyboardInset(rootRef);
+
+  // On-screen CTRL / ALT. Mirrored in a ref because the terminal's input
+  // handler is created once and must read the current value.
+  const [modifiers, setModifiers] = useState<StickyModifiers>({ ctrl: false, alt: false });
+  const modifiersRef = useRef(modifiers);
+  const updateModifiers = useCallback((next: StickyModifiers) => {
+    modifiersRef.current = next;
+    setModifiers(next);
+  }, []);
+  const inputTransformRef = useRef<((data: string) => string) | null>((data) => {
+    const active = modifiersRef.current;
+    if (!active.ctrl && !active.alt) {
+      return data;
+    }
+    updateModifiers({ ctrl: false, alt: false });
+    return applyStickyModifiers(data, active);
+  });
+
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const onImageFilesRef = useRef<((files: File[]) => void) | null>(null);
 
   const {
     terminalContainerRef,
@@ -77,7 +103,53 @@ export default function Shell({
     isRestarting,
     onProcessComplete,
     onOutputRef,
+    inputTransformRef,
+    onImageFilesRef,
   });
+
+  // A terminal CLI takes an image as a file path: save the files on the server
+  // and paste the paths, exactly as dropping a file onto a desktop terminal does.
+  const imageProjectId = !minimal && !isPlainShell ? selectedProject?.projectId : undefined;
+  const attachImages = useCallback(
+    async (files: File[]) => {
+      if (!imageProjectId || files.length === 0) {
+        return;
+      }
+
+      setIsUploadingImages(true);
+      setImageError(null);
+      try {
+        const response = await api.uploadShellImages(imageProjectId, files);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !Array.isArray(body.paths) || body.paths.length === 0) {
+          throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${response.status}`);
+        }
+        terminalRef.current?.paste(`${body.paths.join(' ')} `);
+        terminalRef.current?.focus();
+      } catch (error) {
+        setImageError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setIsUploadingImages(false);
+      }
+    },
+    [imageProjectId, terminalRef],
+  );
+
+  useEffect(() => {
+    onImageFilesRef.current = imageProjectId
+      ? (files) => {
+          void attachImages(files);
+        }
+      : null;
+  }, [attachImages, imageProjectId]);
+
+  useEffect(() => {
+    if (!imageError) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setImageError(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [imageError]);
 
   // Check xterm.js buffer for CLI prompt patterns (❯ N. label)
   const checkBufferForPrompt = useCallback(() => {
@@ -249,23 +321,30 @@ export default function Shell({
 
   if (minimal) {
     return (
-      <>
-        <ShellMinimalView
-          terminalContainerRef={terminalContainerRef}
-          authUrl={authUrl}
-          authUrlVersion={authUrlVersion}
-          initialCommand={initialCommand}
-          isConnected={isConnected}
-          openAuthUrlInBrowser={openAuthUrlInBrowser}
-          copyAuthUrlToClipboard={copyAuthUrlToClipboard}
-        />
+      <div
+        ref={rootRef}
+        className="flex h-full w-full flex-col"
+        style={{ paddingBottom: keyboardInset }}
+      >
+        <div className="min-h-0 flex-1">
+          <ShellMinimalView
+            terminalContainerRef={terminalContainerRef}
+            authUrl={authUrl}
+            authUrlVersion={authUrlVersion}
+            initialCommand={initialCommand}
+            isConnected={isConnected}
+            openAuthUrlInBrowser={openAuthUrlInBrowser}
+            copyAuthUrlToClipboard={copyAuthUrlToClipboard}
+          />
+        </div>
         <TerminalShortcutsPanel
           wsRef={wsRef}
           terminalRef={terminalRef}
           isConnected={isConnected}
-          bottomOffset="bottom-0"
+          modifiers={modifiers}
+          onModifiersChange={updateModifiers}
         />
-      </>
+      </div>
     );
   }
 
@@ -289,7 +368,11 @@ export default function Shell({
   const overlayDescription = overlayMode === 'connecting' ? connectingDescription : readyDescription;
 
   return (
-    <div className="flex h-full w-full flex-col bg-gray-900">
+    <div
+      ref={rootRef}
+      className="flex h-full w-full flex-col bg-gray-900"
+      style={{ paddingBottom: keyboardInset }}
+    >
       <ShellHeader
         isConnected={isConnected}
         isInitialized={isInitialized}
@@ -312,7 +395,9 @@ export default function Shell({
         <div
           ref={terminalContainerRef}
           className="h-full w-full focus:outline-none"
-          style={{ outline: 'none' }}
+          // Swipes are turned into terminal scrolling (see touchScroll.ts), so
+          // the browser must not pan the page or pull-to-refresh here.
+          style={{ outline: 'none', touchAction: 'none' }}
         />
 
         {overlayMode && (
@@ -412,12 +497,21 @@ export default function Shell({
         )}
       </div>
 
+      {imageError && (
+        <div className="shrink-0 px-3 pb-1 text-xs text-red-400" role="alert">
+          {t('shell.imageUploadFailed', { defaultValue: 'Image was not attached' })}: {imageError}
+        </div>
+      )}
+
       <TerminalShortcutsPanel
         wsRef={wsRef}
         terminalRef={terminalRef}
         isConnected={isConnected}
+        modifiers={modifiers}
+        onModifiersChange={updateModifiers}
+        onImageFiles={imageProjectId ? (files) => void attachImages(files) : undefined}
+        isUploadingImages={isUploadingImages}
       />
-
     </div>
   );
 }

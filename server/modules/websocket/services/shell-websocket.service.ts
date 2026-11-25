@@ -6,6 +6,14 @@ import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
 import { parseIncomingJsonObject } from '@/shared/utils.js';
+import {
+  buildTmuxClientArgs,
+  cancelTmuxCopyMode,
+  isTmuxEnabled,
+  resolveNewSessionId,
+  tmuxSessionName,
+  trackNewSessionClient,
+} from '@/modules/websocket/services/shell-tmux.service.js';
 
 type ShellIncomingMessage = {
   type?: string;
@@ -80,7 +88,8 @@ function parseShellMessage(rawMessage: RawData): ShellIncomingMessage | null {
  */
 function buildShellCommand(
   message: ShellIncomingMessage,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  newClaudeSessionId: string | null = null
 ): string {
   const hasSession = readBoolean(message.hasSession);
   const sessionId = readString(message.sessionId);
@@ -150,7 +159,20 @@ function buildShellCommand(
     }
     return `claude --resume "${sessionId}" || claude`;
   }
+  if (newClaudeSessionId) {
+    return `${command} --session-id "${newClaudeSessionId}"`;
+  }
   return command;
+}
+
+/**
+ * True when a brand-new Claude conversation is being started with the stock
+ * command, i.e. when the server may pick the conversation id itself.
+ */
+function isFreshClaudeSession(message: ShellIncomingMessage): boolean {
+  const provider = readString(message.provider, 'claude');
+  const hasSession = readBoolean(message.hasSession) && !!readString(message.sessionId);
+  return provider === 'claude' && !hasSession && !readString(message.initialCommand);
 }
 
 /**
@@ -164,6 +186,9 @@ export function handleShellConnection(
 
   let shellProcess: IPty | null = null;
   let ptySessionKey: string | null = null;
+  // Set when this connection is a tmux client: the session outlives the pty.
+  let tmuxName: string | null = null;
+  let trackedNewSession: { projectPath: string; sessionId: string } | null = null;
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
 
@@ -199,6 +224,20 @@ export function handleShellConnection(
             ? `_cmd_${Buffer.from(initialCommand).toString('base64').slice(0, 16)}`
             : '';
         ptySessionKey = `${projectPath}_${sessionId ?? 'default'}${commandSuffix}`;
+
+        const useTmux = !isPlainShell && !isLoginCommand && isTmuxEnabled();
+        let newClaudeSessionId: string | null = null;
+        if (useTmux) {
+          if (isFreshClaudeSession(data)) {
+            newClaudeSessionId = resolveNewSessionId(projectPath, (id) => `${projectPath}_${id}`);
+            trackedNewSession = { projectPath, sessionId: newClaudeSessionId };
+          }
+          // Named after the conversation, so every device opening it lands in
+          // the same tmux session. The pty map key is unique per connection:
+          // each websocket gets its own tmux client.
+          tmuxName = tmuxSessionName(`${projectPath}_${newClaudeSessionId ?? sessionId ?? 'default'}`);
+          ptySessionKey = `${ptySessionKey}#${tmuxName}#${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        }
 
         if (isLoginCommand) {
           const oldSession = ptySessionsMap.get(ptySessionKey);
@@ -257,10 +296,23 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies);
-        const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
-        const shellArgs =
+        const shellCommand = buildShellCommand(data, dependencies, newClaudeSessionId);
+        const sessionEnv = { COLORTERM: 'truecolor', FORCE_COLOR: '3' };
+        let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+        let shellArgs =
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
+        if (tmuxName) {
+          shell = 'tmux';
+          shellArgs = buildTmuxClientArgs({
+            name: tmuxName,
+            cwd: resolvedProjectPath,
+            command: shellCommand,
+            env: sessionEnv,
+          });
+          if (trackedNewSession) {
+            trackNewSessionClient(trackedNewSession.projectPath, trackedNewSession.sessionId, 1);
+          }
+        }
         const termCols = readNumber(data.cols, 80);
         const termRows = readNumber(data.rows, 24);
 
@@ -272,8 +324,7 @@ export function handleShellConnection(
           env: {
             ...process.env,
             TERM: 'xterm-256color',
-            COLORTERM: 'truecolor',
-            FORCE_COLOR: '3',
+            ...sessionEnv,
           },
         });
 
@@ -387,6 +438,11 @@ export function handleShellConnection(
           shellProcess = null;
         });
 
+        if (tmuxName) {
+          // tmux repaints the whole screen on attach; a banner would only flash.
+          return;
+        }
+
         let welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
         if (!isPlainShell) {
           const providerName =
@@ -424,6 +480,13 @@ export function handleShellConnection(
         if (shellProcess) {
           shellProcess.resize(readNumber(data.cols, 80), readNumber(data.rows, 24));
         }
+        return;
+      }
+
+      if (data.type === 'scroll-bottom') {
+        if (tmuxName) {
+          cancelTmuxCopyMode(tmuxName);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -450,6 +513,17 @@ export function handleShellConnection(
     }
 
     session.ws = null;
+
+    if (tmuxName) {
+      // Only the tmux client goes away; the CLI keeps running in its session.
+      if (trackedNewSession) {
+        trackNewSessionClient(trackedNewSession.projectPath, trackedNewSession.sessionId, -1);
+      }
+      ptySessionsMap.delete(ptySessionKey);
+      session.pty.kill();
+      return;
+    }
+
     session.timeoutId = setTimeout(() => {
       session.pty.kill();
       ptySessionsMap.delete(ptySessionKey as string);

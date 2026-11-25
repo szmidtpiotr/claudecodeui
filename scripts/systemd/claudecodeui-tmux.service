@@ -1,0 +1,30 @@
+# tmux server that holds the agent terminals of the Shell tab.
+#
+# Optional. Without it the first Shell connection starts the tmux server as a
+# child of the claudecodeui service, and systemd stops it (with every running
+# CLI) whenever that service restarts. Run as its own unit, the terminals
+# survive a restart or rebuild of claudecodeui.
+#
+# Install (adjust User and the home directory):
+#   sudo cp scripts/systemd/claudecodeui-tmux.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now claudecodeui-tmux
+#
+# The socket name must match SHELL_TMUX_SOCKET of the server (default "ccui").
+# The config file is written by the server on its first Shell connection;
+# sessions get their environment from the server, not from this unit.
+
+[Unit]
+Description=tmux server for Claude Code UI shell sessions
+Before=claudecodeui.service
+
+[Service]
+Type=forking
+User=claude
+Group=claude
+WorkingDirectory=/home/claude
+ExecStart=/usr/bin/tmux -L ccui -f /home/claude/.config/claudecodeui/tmux.conf start-server ; set-option -s exit-empty off
+ExecStop=/usr/bin/tmux -L ccui kill-server
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

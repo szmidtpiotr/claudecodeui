@@ -16,6 +16,34 @@ import { copyTextToClipboard } from '../../../utils/clipboard';
 import { isCodexLoginCommand } from '../utils/auth';
 import { sendSocketMessage } from '../utils/socket';
 import { ensureXtermFocusStyles } from '../utils/terminalStyles';
+import { attachTouchScroll } from '../utils/touchScroll';
+
+const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+const imageFilesFrom = (list: FileList | null | undefined): File[] =>
+  Array.from(list ?? []).filter((file) => IMAGE_MIME_TYPES.includes(file.type));
+
+/** Reads an image off the clipboard, if the browser allows and one is there. */
+async function readClipboardImage(): Promise<File | null> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.read) {
+    return null;
+  }
+
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const type = item.types.find((candidate) => IMAGE_MIME_TYPES.includes(candidate));
+      if (type) {
+        const blob = await item.getType(type);
+        return new File([blob], `clipboard.${type.split('/')[1]}`, { type });
+      }
+    }
+  } catch {
+    // No permission, or nothing readable on the clipboard.
+  }
+
+  return null;
+}
 
 // CLIs running inside the pty (e.g. `claude auth login`'s "press c to copy"
 // device-flow prompt) write to the clipboard via an OSC 52 escape sequence,
@@ -67,6 +95,8 @@ type UseShellTerminalOptions = {
   authUrlRef: MutableRefObject<string>;
   copyAuthUrlToClipboard: (url?: string) => Promise<boolean>;
   closeSocket: () => void;
+  inputTransformRef?: MutableRefObject<((data: string) => string) | null>;
+  onImageFilesRef?: MutableRefObject<((files: File[]) => void) | null>;
 };
 
 type UseShellTerminalResult = {
@@ -88,6 +118,8 @@ export function useShellTerminal({
   authUrlRef,
   copyAuthUrlToClipboard,
   closeSocket,
+  inputTransformRef,
+  onImageFilesRef,
 }: UseShellTerminalOptions): UseShellTerminalResult {
   const [isInitialized, setIsInitialized] = useState(false);
   const resizeTimeoutRef = useRef<number | null>(null);
@@ -174,6 +206,44 @@ export function useShellTerminal({
 
     terminalContainerRef.current.addEventListener('copy', handleTerminalCopy);
 
+    // Images pasted or dropped onto the terminal are handed to the Shell, which
+    // saves them on the server and types their paths. Without a receiver the
+    // events keep their default behaviour.
+    const handleTerminalPaste = (event: ClipboardEvent) => {
+      const images = imageFilesFrom(event.clipboardData?.files);
+      if (images.length === 0 || !onImageFilesRef?.current) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onImageFilesRef.current(images);
+    };
+
+    const handleTerminalDragOver = (event: DragEvent) => {
+      if (onImageFilesRef?.current && event.dataTransfer?.types.includes('Files')) {
+        event.preventDefault();
+      }
+    };
+
+    const handleTerminalDrop = (event: DragEvent) => {
+      const images = imageFilesFrom(event.dataTransfer?.files);
+      if (images.length === 0 || !onImageFilesRef?.current) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onImageFilesRef.current(images);
+    };
+
+    const terminalContainer = terminalContainerRef.current;
+    terminalContainer.addEventListener('paste', handleTerminalPaste, true);
+    terminalContainer.addEventListener('dragover', handleTerminalDragOver);
+    terminalContainer.addEventListener('drop', handleTerminalDrop);
+
+    const detachTouchScroll = attachTouchScroll(terminalContainer, () => terminalRef.current);
+
     nextTerminal.attachCustomKeyEventHandler((event) => {
       const activeAuthUrl = isCodexLoginCommand(initialCommandRef.current)
         ? CODEX_DEVICE_AUTH_URL
@@ -216,7 +286,11 @@ export function useShellTerminal({
         event.preventDefault();
         event.stopPropagation();
 
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const pasteText = () => {
+          if (typeof navigator === 'undefined' || !navigator.clipboard?.readText) {
+            return;
+          }
+
           navigator.clipboard
             .readText()
             .then((text) => {
@@ -226,6 +300,19 @@ export function useShellTerminal({
               });
             })
             .catch(() => {});
+        };
+
+        // A copied screenshot has no text form: look for an image first.
+        if (onImageFilesRef?.current) {
+          void readClipboardImage().then((image) => {
+            if (image && onImageFilesRef.current) {
+              onImageFilesRef.current([image]);
+              return;
+            }
+            pasteText();
+          });
+        } else {
+          pasteText();
         }
 
         return false;
@@ -254,7 +341,7 @@ export function useShellTerminal({
     const dataSubscription = nextTerminal.onData((data) => {
       sendSocketMessage(wsRef.current, {
         type: 'input',
-        data,
+        data: inputTransformRef?.current ? inputTransformRef.current(data) : data,
       });
     });
 
@@ -283,6 +370,10 @@ export function useShellTerminal({
 
     return () => {
       terminalContainerRef.current?.removeEventListener('copy', handleTerminalCopy);
+      terminalContainer.removeEventListener('paste', handleTerminalPaste, true);
+      terminalContainer.removeEventListener('dragover', handleTerminalDragOver);
+      terminalContainer.removeEventListener('drop', handleTerminalDrop);
+      detachTouchScroll();
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current !== null) {
         window.clearTimeout(resizeTimeoutRef.current);
@@ -303,6 +394,8 @@ export function useShellTerminal({
     isRestarting,
     minimal,
     hasSelectedProject,
+    inputTransformRef,
+    onImageFilesRef,
     selectedProjectKey,
     terminalContainerRef,
     terminalRef,

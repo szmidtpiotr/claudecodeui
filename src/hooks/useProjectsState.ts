@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
+import { isSessionView, resolveSessionView } from '../utils/sessionView';
+import { useSessionViews } from './useSessionViews';
 import type {
   AppSocketMessage,
   AppTab,
@@ -288,6 +290,47 @@ export function useProjectsState({
       // Silently ignore storage errors
     }
   }, [activeTab]);
+
+  // Each session remembers whether it was last used as a chat or in the
+  // terminal. Entering a session opens that view; switching between the two
+  // tabs while inside a session is what records the choice.
+  const { views: sessionViews, loaded: sessionViewsLoaded, rememberView } = useSessionViews();
+  const selectedSessionId = selectedSession?.id ?? null;
+  const viewAppliedForSessionRef = useRef<string | null>(null);
+  const previousViewStateRef = useRef<{ sessionId: string | null; tab: AppTab }>({
+    sessionId: selectedSessionId,
+    tab: activeTab,
+  });
+
+  useEffect(() => {
+    const previous = previousViewStateRef.current;
+    previousViewStateRef.current = { sessionId: selectedSessionId, tab: activeTab };
+
+    if (!selectedSessionId) {
+      viewAppliedForSessionRef.current = null;
+      return;
+    }
+
+    // Entered a session (or the remembered views just arrived): open its view.
+    if (sessionViewsLoaded && viewAppliedForSessionRef.current !== selectedSessionId) {
+      viewAppliedForSessionRef.current = selectedSessionId;
+      const view = resolveSessionView(sessionViews[selectedSessionId], activeTab);
+      if (view) {
+        setActiveTab(view);
+      }
+      return;
+    }
+
+    // Same session, different tab: the user chose a view for it.
+    if (
+      sessionViewsLoaded &&
+      previous.sessionId === selectedSessionId &&
+      previous.tab !== activeTab &&
+      isSessionView(activeTab)
+    ) {
+      rememberView(selectedSessionId, activeTab);
+    }
+  }, [activeTab, rememberView, selectedSessionId, sessionViews, sessionViewsLoaded]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);

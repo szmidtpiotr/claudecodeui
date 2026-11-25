@@ -28,7 +28,16 @@ export type ShellInputMessage = {
   data: string;
 };
 
-export type ShellOutgoingMessage = ShellInitMessage | ShellResizeMessage | ShellInputMessage;
+// Asks the server to leave tmux history scrolling and show the live screen.
+export type ShellScrollBottomMessage = {
+  type: 'scroll-bottom';
+};
+
+export type ShellOutgoingMessage =
+  | ShellInitMessage
+  | ShellResizeMessage
+  | ShellInputMessage
+  | ShellScrollBottomMessage;
 
 export type ShellIncomingMessage =
   | { type: 'output'; data: string }
@@ -46,6 +55,10 @@ export type UseShellRuntimeOptions = {
   isRestarting: boolean;
   onProcessComplete?: ((exitCode: number) => void) | null;
   onOutputRef?: MutableRefObject<(() => void) | null>;
+  /** Rewrites keyboard input before it is sent (on-screen CTRL / ALT). */
+  inputTransformRef?: MutableRefObject<((data: string) => string) | null>;
+  /** Receives images pasted or dropped onto the terminal. */
+  onImageFilesRef?: MutableRefObject<((files: File[]) => void) | null>;
 };
 
 export type ShellSharedRefs = {

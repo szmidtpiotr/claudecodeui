@@ -254,6 +254,67 @@ router.put('/pinned-sessions', async (req, res) => {
 });
 
 // ===============================
+// Session Views (cross-device sync)
+// ===============================
+//
+// Which main view (chat or terminal) a session was last used in, so picking it
+// from the sidebar opens the same view on every device. Stored as a JSON object
+// {sessionId: 'chat' | 'shell'} in app_config, keyed per user. Insertion order
+// is the age order: the oldest entries are dropped past the cap.
+
+const SESSION_VIEWS_KEY = (userId) => `session_views:${userId}`;
+const SESSION_VIEW_VALUES = new Set(['chat', 'shell']);
+const SESSION_VIEWS_LIMIT = 1000;
+
+function readSessionViews(userId) {
+  try {
+    const raw = appConfigDb.get(SESSION_VIEWS_KEY(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, view]) => SESSION_VIEW_VALUES.has(view)),
+    );
+  } catch {
+    return {};
+  }
+}
+
+router.get('/session-views', async (req, res) => {
+  try {
+    res.json({ success: true, views: readSessionViews(req.user.id) });
+  } catch (error) {
+    console.error('Error fetching session views:', error);
+    res.status(500).json({ error: 'Failed to fetch session views' });
+  }
+});
+
+router.put('/session-views', async (req, res) => {
+  try {
+    const { sessionId, view } = req.body || {};
+    if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 200) {
+      return res.status(400).json({ error: 'sessionId must be a non-empty string' });
+    }
+    if (!SESSION_VIEW_VALUES.has(view)) {
+      return res.status(400).json({ error: "view must be 'chat' or 'shell'" });
+    }
+
+    const views = readSessionViews(req.user.id);
+    // Re-insert so the entry counts as the newest one.
+    delete views[sessionId];
+    views[sessionId] = view;
+
+    const entries = Object.entries(views);
+    const trimmed = Object.fromEntries(entries.slice(Math.max(0, entries.length - SESSION_VIEWS_LIMIT)));
+    appConfigDb.set(SESSION_VIEWS_KEY(req.user.id), JSON.stringify(trimmed));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving session view:', error);
+    res.status(500).json({ error: 'Failed to save session view' });
+  }
+});
+
+// ===============================
 // Session Titles
 // ===============================
 

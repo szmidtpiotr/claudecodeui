@@ -64,6 +64,22 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ sessionIds }),
     }),
+  // Last used view (chat / terminal) per session, synced across devices.
+  getSessionViews: () => authenticatedFetch('/api/settings/session-views'),
+  setSessionView: (sessionId, view) =>
+    authenticatedFetch('/api/settings/session-views', {
+      method: 'PUT',
+      body: JSON.stringify({ sessionId, view }),
+    }),
+  // Saves images on the server and returns their absolute paths (Shell tab).
+  uploadShellImages: (projectId, files) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('images', file));
+    return authenticatedFetch(`/api/projects/${encodeURIComponent(projectId)}/shell-images`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
   projectSessions: (projectId, { limit = 20, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     params.set('limit', String(limit));

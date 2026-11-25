@@ -1231,6 +1231,73 @@ app.post('/api/projects/:projectId/upload-images', authenticateToken, parseAuthe
     }
 });
 
+// POST /api/projects/:projectId/shell-images - images attached from the Shell tab.
+// A terminal CLI takes an image as a file path, so unlike `upload-images` the
+// files are kept: saved under the project's "temp-img/" folder (same place the
+// chat uses, inside the directory the CLI may read) and their absolute paths
+// are returned for the client to type into the terminal.
+app.post('/api/projects/:projectId/shell-images', authenticateToken, parseAuthenticatedBody, async (req, res) => {
+    try {
+        const multer = (await import('multer')).default;
+        const fsp = (await import('fs')).promises;
+
+        const projectRoot = await projectsDb.getProjectPathById(req.params.projectId);
+        if (!projectRoot) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const uploadDir = path.join(path.resolve(projectRoot), 'temp-img', Date.now().toString());
+        const extensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
+
+        const upload = multer({
+            storage: multer.diskStorage({
+                destination: async (request, file, cb) => {
+                    try {
+                        await fsp.mkdir(uploadDir, { recursive: true });
+                        cb(null, uploadDir);
+                    } catch (error) {
+                        cb(error);
+                    }
+                },
+                // No spaces or shell metacharacters: the path is typed into a terminal.
+                filename: (request, file, cb) => {
+                    const suffix = Math.random().toString(36).slice(2, 6);
+                    cb(null, `image_${Date.now()}_${suffix}${extensions[file.mimetype] || '.img'}`);
+                }
+            }),
+            fileFilter: (request, file, cb) => {
+                if (extensions[file.mimetype]) {
+                    cb(null, true);
+                } else {
+                    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'));
+                }
+            },
+            limits: { fileSize: 20 * 1024 * 1024, files: 5 }
+        });
+
+        upload.array('images', 5)(req, res, async (err) => {
+            if (err) {
+                return res.status(400).json({ error: err.message });
+            }
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ error: 'No image files provided' });
+            }
+
+            // Android clipboard Files can arrive as an empty blob (see upload-images).
+            const empty = req.files.filter((file) => file.size === 0);
+            if (empty.length > 0) {
+                await Promise.all(req.files.map((file) => fsp.unlink(file.path).catch(() => { })));
+                return res.status(400).json({ error: 'Image arrived empty — attach it again' });
+            }
+
+            res.json({ paths: req.files.map((file) => file.path) });
+        });
+    } catch (error) {
+        console.error('Error in shell image upload endpoint:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // POST /api/assets/images - Global image upload (not tied to a project).
 // Accepts multipart/form-data with field "images", returns base64-encoded results.
 app.post('/api/assets/images', authenticateToken, parseAuthenticatedBody, async (req, res) => {
