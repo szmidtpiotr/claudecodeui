@@ -9,6 +9,7 @@ import { parseIncomingJsonObject } from '@/shared/utils.js';
 import {
   buildTmuxClientArgs,
   cancelTmuxCopyMode,
+  leaveCopyModeBeforeTyping,
   closeTerminalIfOutdated,
   isTmuxEnabled,
   resizeTmuxWindow,
@@ -486,7 +487,11 @@ export function handleShellConnection(
 
       if (data.type === 'input') {
         if (shellProcess) {
-          shellProcess.write(readString(data.data));
+          const input = readString(data.data);
+          if (tmuxName) {
+            leaveCopyModeBeforeTyping(tmuxName, input);
+          }
+          shellProcess.write(input);
         }
         return;
       }

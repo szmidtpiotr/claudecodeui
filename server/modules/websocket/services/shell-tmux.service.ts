@@ -275,6 +275,42 @@ export function cancelTmuxCopyMode(name: string): void {
   execFile('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, '-X', 'cancel'], () => {});
 }
 
+// Terminals that received a mouse report since their last key press, so they
+// may be showing history (tmux copy mode) instead of the live screen.
+const maybeInCopyMode = new Set<string>();
+
+/** True for input that is only mouse reports (wheel or touch scrolling). */
+export function isMouseReport(data: string): boolean {
+  return data.startsWith('\x1b[<') || data.startsWith('\x1b[M');
+}
+
+/**
+ * Call before writing client input to the terminal. Scrolling puts tmux into
+ * copy mode, where it swallows every key - a menu of the CLI then looks frozen.
+ * The first real key after scrolling returns to the live screen, so the key
+ * reaches the CLI.
+ */
+export function leaveCopyModeBeforeTyping(name: string, data: string): void {
+  if (isMouseReport(data)) {
+    maybeInCopyMode.add(name);
+    return;
+  }
+
+  if (!maybeInCopyMode.delete(name)) {
+    return;
+  }
+
+  try {
+    // Synchronous: the key must not overtake the cancel.
+    execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, '-X', 'cancel'], {
+      stdio: 'ignore',
+      timeout: 1000,
+    });
+  } catch {
+    // Not in copy mode - nothing to leave.
+  }
+}
+
 /**
  * Parses `list-sessions` output and returns sessions nobody is attached to and
  * that produced no output for longer than the idle limit.

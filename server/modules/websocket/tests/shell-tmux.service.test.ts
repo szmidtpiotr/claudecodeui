@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isTerminalOutdated, selectIdleSessions, tmuxSessionName } from '@/modules/websocket/services/shell-tmux.service.js';
+import { isMouseReport, isTerminalOutdated, selectIdleSessions, tmuxSessionName } from '@/modules/websocket/services/shell-tmux.service.js';
 
 const HOUR = 3600;
 const NOW = 1_000_000;
@@ -47,4 +47,10 @@ test('a terminal started after the last chat turn is current', () => {
 
 test('a terminal is current when the chat never touched the conversation', () => {
   assert.equal(isTerminalOutdated(1_000, undefined), false);
+});
+
+test('tells scrolling reports from typed keys', () => {
+  assert.equal(isMouseReport('\x1b[<64;10;5M'), true);
+  assert.equal(isMouseReport('\x1b[B'), false);
+  assert.equal(isMouseReport('a'), false);
 });
