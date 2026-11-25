@@ -51,10 +51,14 @@ export function useKeyboardInset(elementRef: RefObject<HTMLElement>): {
     const showDebug =
       new URLSearchParams(window.location.search).has('kbdebug') ||
       import.meta.env.VITE_KB_DEBUG === '1';
-    // The navigation bar height, as seen while the keyboard is closed. On
-    // edge-to-edge Android the visual viewport with the keyboard open still
-    // reaches down by that much behind the keyboard, so it has to be added.
+    // Chrome on edge-to-edge Android shrinks the page when the keyboard opens,
+    // but only down to the bottom of the screen area it draws on: the strip
+    // that held the system navigation bar (24 px on a Pixel) still lies under
+    // the top of the keyboard. That strip is known only while the keyboard is
+    // closed, as the bottom safe area, so it is remembered from then.
     let safeBottom = 0;
+    // Tallest viewport seen = keyboard closed. A much shorter one = keyboard open.
+    let tallestViewport = 0;
     const timers: number[] = [];
 
     const measure = () => {
@@ -63,11 +67,13 @@ export function useKeyboardInset(elementRef: RefObject<HTMLElement>): {
         return;
       }
 
+      tallestViewport = Math.max(tallestViewport, viewport.height);
       const visibleBottom = viewport.offsetTop + viewport.height;
       const elementBottom = element.getBoundingClientRect().bottom;
-      const covered = Math.round(elementBottom - visibleBottom);
-      // Browser chrome sliding in and out changes the viewport by a few px.
-      const keyboardOpen = covered > 40;
+      // Part of the element below the visible area (browsers that do not
+      // shrink the page for the keyboard at all).
+      const covered = Math.max(0, Math.round(elementBottom - visibleBottom));
+      const keyboardOpen = covered > 40 || tallestViewport - viewport.height > 150;
       if (!keyboardOpen) {
         safeBottom = Math.max(safeBottom, readSafeAreaBottom());
       }
