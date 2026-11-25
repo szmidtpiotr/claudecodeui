@@ -220,6 +220,23 @@ export function useShellTerminal({
     terminalContainer.addEventListener('drop', handleTerminalDrop);
 
     const detachTouchScroll = attachTouchScroll(terminalContainer, () => terminalRef.current);
+
+    // A terminal shared with another device has one size. Touching it, or
+    // coming back to this tab, claims the size of this screen.
+    const claimTerminalSize = () => {
+      const currentTerminal = terminalRef.current;
+      if (!currentTerminal || document.visibilityState !== 'visible') {
+        return;
+      }
+      sendSocketMessage(wsRef.current, {
+        type: 'resize',
+        cols: currentTerminal.cols,
+        rows: currentTerminal.rows,
+      });
+    };
+    terminalContainer.addEventListener('pointerdown', claimTerminalSize, true);
+    document.addEventListener('visibilitychange', claimTerminalSize);
+    window.addEventListener('focus', claimTerminalSize);
     const detachImeDirectInput = hasSoftKeyboard()
       ? attachImeDirectInput(terminalContainer, nextTerminal)
       : () => {};
@@ -336,6 +353,9 @@ export function useShellTerminal({
       terminalContainer.removeEventListener('dragover', handleTerminalDragOver);
       terminalContainer.removeEventListener('drop', handleTerminalDrop);
       detachTouchScroll();
+      terminalContainer.removeEventListener('pointerdown', claimTerminalSize, true);
+      document.removeEventListener('visibilitychange', claimTerminalSize);
+      window.removeEventListener('focus', claimTerminalSize);
       detachImeDirectInput();
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current !== null) {

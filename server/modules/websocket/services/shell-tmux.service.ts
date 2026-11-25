@@ -252,6 +252,24 @@ export function closeTerminalIfOutdated(name: string, sessionId: string): boolea
   return true;
 }
 
+/**
+ * Sizes the shared terminal for the device that just asked. With two devices
+ * on one conversation the terminal can only have one size; the device in use
+ * claims it, so its lines wrap to its own width instead of being cut off at
+ * the width of the other one.
+ */
+export function resizeTmuxWindow(name: string, cols: number, rows: number): void {
+  if (!(cols > 0) || !(rows > 0)) {
+    return;
+  }
+
+  execFile(
+    'tmux',
+    ['-L', TMUX_SOCKET, 'resize-window', '-t', `=${name}:`, '-x', String(Math.floor(cols)), '-y', String(Math.floor(rows))],
+    () => {}
+  );
+}
+
 /** Leaves tmux copy mode (history scrolling) so the live screen is shown again. */
 export function cancelTmuxCopyMode(name: string): void {
   execFile('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, '-X', 'cancel'], () => {});

@@ -11,6 +11,7 @@ import {
   cancelTmuxCopyMode,
   closeTerminalIfOutdated,
   isTmuxEnabled,
+  resizeTmuxWindow,
   resolveNewSessionId,
   tmuxSessionName,
   trackNewSessionClient,
@@ -496,6 +497,9 @@ export function handleShellConnection(
       if (data.type === 'resize') {
         if (shellProcess) {
           shellProcess.resize(readNumber(data.cols, 80), readNumber(data.rows, 24));
+          if (tmuxName) {
+            resizeTmuxWindow(tmuxName, readNumber(data.cols, 80), readNumber(data.rows, 24));
+          }
         }
         return;
       }
