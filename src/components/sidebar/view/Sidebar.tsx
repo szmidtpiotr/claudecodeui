@@ -247,6 +247,7 @@ function Sidebar({
     pinnedSessionIds,
     onTogglePin: togglePin,
     attentionSessionIds,
+    runningSessionIds,
     t,
   };
 

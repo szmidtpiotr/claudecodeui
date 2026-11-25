@@ -40,6 +40,7 @@ type SidebarProjectSessionsProps = {
   pinnedSessionIds: Set<string>;
   onTogglePin: (sessionId: string) => void;
   attentionSessionIds?: Set<string>;
+  runningSessionIds?: Set<string>;
   t: TFunction;
 };
 
@@ -108,6 +109,7 @@ export default function SidebarProjectSessions({
   pinnedSessionIds,
   onTogglePin,
   attentionSessionIds,
+  runningSessionIds,
   t,
 }: SidebarProjectSessionsProps) {
   const sortedSessions = useMemo(() => [...sessions].sort((a, b) => {
@@ -271,6 +273,7 @@ export default function SidebarProjectSessions({
                     isPinned={pinnedSessionIds.has(session.id)}
                     onTogglePin={onTogglePin}
                     needsAttention={attentionSessionIds?.has(session.id) ?? false}
+                    isRunning={(runningSessionIds?.has(session.id) ?? false) || session.derivedRunning === true}
                     t={t}
                   />
                 </div>

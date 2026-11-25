@@ -54,6 +54,7 @@ export type SidebarProjectListProps = {
   pinnedSessionIds: Set<string>;
   onTogglePin: (sessionId: string) => void;
   attentionSessionIds?: Set<string>;
+  runningSessionIds?: Set<string>;
   t: TFunction;
 };
 
@@ -98,6 +99,7 @@ export default function SidebarProjectList({
   pinnedSessionIds,
   onTogglePin,
   attentionSessionIds,
+  runningSessionIds,
   t,
 }: SidebarProjectListProps) {
   const state = (
@@ -167,6 +169,7 @@ export default function SidebarProjectList({
               pinnedSessionIds={pinnedSessionIds}
               onTogglePin={onTogglePin}
               attentionSessionIds={attentionSessionIds}
+              runningSessionIds={runningSessionIds}
               t={t}
             />
           ))}

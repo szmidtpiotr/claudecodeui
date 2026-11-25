@@ -169,6 +169,8 @@
     "showFewer": "Show fewer",
     "showMore": "Show more",
     "empty": "No sessions yet.",
-    "running": "working"
+    "running": "working",
+    "hide": "Remove from recent sessions (comes back when there is new activity)",
+    "runningInProject": "{{count}} working"
   }
 }

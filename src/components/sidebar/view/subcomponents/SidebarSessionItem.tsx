@@ -37,6 +37,8 @@ type SidebarSessionItemProps = {
   isPinned: boolean;
   onTogglePin: (sessionId: string) => void;
   needsAttention?: boolean;
+  // The server is running a turn in this session right now.
+  isRunning?: boolean;
   t: TFunction;
 };
 
@@ -71,6 +73,7 @@ export default function SidebarSessionItem({
   isPinned,
   onTogglePin,
   needsAttention = false,
+  isRunning = false,
   t,
 }: SidebarSessionItemProps) {
   const sessionView = createSessionViewModel(session, currentTime, t);
@@ -318,7 +321,11 @@ export default function SidebarSessionItem({
                 isSelected ? 'bg-primary/10' : 'bg-muted/50',
               )}
             >
-              <SessionProviderLogo provider={session.__provider} className="h-3 w-3" />
+              {isRunning ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+              ) : (
+                <SessionProviderLogo provider={session.__provider} className="h-3 w-3" />
+              )}
             </div>
 
             <div className="min-w-0 flex-1">
@@ -536,7 +543,11 @@ export default function SidebarSessionItem({
           }}
         >
           <div className="flex w-full min-w-0 items-start gap-2">
-            <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
+            {isRunning ? (
+              <Loader2 className="mt-0.5 h-3 w-3 flex-shrink-0 animate-spin text-blue-500" />
+            ) : (
+              <SessionProviderLogo provider={session.__provider} className="mt-0.5 h-3 w-3 flex-shrink-0" />
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Tooltip

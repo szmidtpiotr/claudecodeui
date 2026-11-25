@@ -1,5 +1,5 @@
 import { useState, type DragEvent } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit3, Loader2, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '../../../../shared/view/ui';
@@ -56,6 +56,7 @@ type SidebarProjectItemProps = {
   pinnedSessionIds: Set<string>;
   onTogglePin: (sessionId: string) => void;
   attentionSessionIds?: Set<string>;
+  runningSessionIds?: Set<string>;
   t: TFunction;
 };
 
@@ -102,6 +103,7 @@ export default function SidebarProjectItem({
   pinnedSessionIds,
   onTogglePin,
   attentionSessionIds,
+  runningSessionIds,
   t,
 }: SidebarProjectItemProps) {
   // Project identity is tracked by the DB-assigned `projectId` everywhere
@@ -110,6 +112,20 @@ export default function SidebarProjectItem({
   const isSelected = selectedProject?.projectId === project.projectId;
   const isEditing = editingProject === project.projectId;
   const totalSessionCount = Number(project.sessionMeta?.total ?? sessions.length);
+  // Sessions of this project running a turn right now, shown next to the
+  // session count so a collapsed project still reveals work in progress.
+  const runningCount = runningSessionIds
+    ? sessions.filter((session) => runningSessionIds.has(session.id) || session.derivedRunning === true).length
+    : 0;
+  const runningBadge = runningCount > 0 ? (
+    <span
+      className="ml-1.5 inline-flex items-center gap-0.5 text-blue-500"
+      title={t('recentSessions.runningInProject', { count: runningCount, defaultValue: '{{count}} working' })}
+    >
+      <Loader2 className="h-3 w-3 animate-spin" />
+      {runningCount}
+    </span>
+  ) : null;
   const sessionCountDisplay = getSessionCountDisplay(project, sessions);
   const sessionCountLabel = `${sessionCountDisplay} session${totalSessionCount === 1 ? '' : 's'}`;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
@@ -260,7 +276,7 @@ export default function SidebarProjectItem({
                           />
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground">{sessionCountLabel}</p>
+                      <p className="flex items-center text-xs text-muted-foreground">{sessionCountLabel}{runningBadge}</p>
                     </>
                   )}
                 </div>
@@ -390,6 +406,7 @@ export default function SidebarProjectItem({
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}
+                    {runningBadge}
                     {project.fullPath !== project.displayName && (
                       <span className="ml-1 opacity-60" title={project.fullPath}>
                         {' - '}
@@ -481,6 +498,7 @@ export default function SidebarProjectItem({
         pinnedSessionIds={pinnedSessionIds}
         onTogglePin={onTogglePin}
         attentionSessionIds={attentionSessionIds}
+        runningSessionIds={runningSessionIds}
         t={t}
       />
     </div>

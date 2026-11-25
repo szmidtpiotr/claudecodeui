@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Loader2, Minus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Minus, Plus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { TFunction } from 'i18next';
 
@@ -29,6 +29,9 @@ type SidebarRecentSessionsProps = {
 
 const COUNT_KEY = 'sidebar-recent-sessions-count';
 const COLLAPSED_KEY = 'sidebar-recent-sessions-collapsed';
+const HIDDEN_KEY = 'sidebar-recent-sessions-hidden';
+// Hidden marks older than this are dropped so the stored map stays small.
+const HIDDEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
 const MAX_COUNT = 20;
@@ -37,16 +40,42 @@ function readCount(): number {
   try {
     const value = Number(localStorage.getItem(COUNT_KEY));
     if (Number.isInteger(value) && value >= MIN_COUNT && value <= MAX_COUNT) return value;
-  } catch { /* storage unavailable */ }
+  } catch {
+    /* storage unavailable */
+  }
   return DEFAULT_COUNT;
 }
 
 function readCollapsed(): boolean {
-  try { return localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** sessionId → time it was hidden from the section (ms). */
+function readHidden(): Record<string, number> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const cutoff = Date.now() - HIDDEN_MAX_AGE_MS;
+    const result: Record<string, number> = {};
+    for (const [id, at] of Object.entries(parsed)) {
+      if (typeof at === 'number' && at > cutoff) result[id] = at;
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function persist(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 const PROVIDER_LISTS: Array<[keyof Project, LLMProvider]> = [
@@ -110,14 +139,28 @@ export default function SidebarRecentSessions({
 }: SidebarRecentSessionsProps) {
   const [count, setCount] = useState(readCount);
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [hidden, setHidden] = useState(readHidden);
 
   const visible = useMemo(() => {
-    const all = collectSessions(projects, runningSessionIds);
+    // A hidden session comes back on its own once it runs or gets new
+    // activity after it was hidden, so hiding never loses track of new work.
+    const all = collectSessions(projects, runningSessionIds).filter((entry) => {
+      const hiddenAt = hidden[entry.sessionId];
+      return hiddenAt === undefined || entry.isRunning || new Date(entry.lastActivity).getTime() > hiddenAt;
+    });
     // Running sessions always show (on top); the rest fill up to `count`.
     const running = all.filter((entry) => entry.isRunning);
     const rest = all.filter((entry) => !entry.isRunning);
     return [...running, ...rest.slice(0, Math.max(0, count - running.length))];
-  }, [projects, runningSessionIds, count]);
+  }, [projects, runningSessionIds, count, hidden]);
+
+  const hideSession = (sessionId: string) => {
+    setHidden((previous) => {
+      const next = { ...previous, [sessionId]: Date.now() };
+      persist(HIDDEN_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   const changeCount = (delta: number) => {
     setCount((previous) => {
@@ -177,54 +220,64 @@ export default function SidebarRecentSessions({
         </div>
       </div>
 
-      {!collapsed && (
-        visible.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-muted-foreground">
-            {t('recentSessions.empty', 'No sessions yet.')}
-          </p>
+      {!collapsed &&
+        (visible.length === 0 ? (
+          <p className="px-2 py-2 text-xs text-muted-foreground">{t('recentSessions.empty', 'No sessions yet.')}</p>
         ) : (
           <div className="mt-1 space-y-0.5">
             {visible.map((entry) => {
               const isSelected = selectedSession?.id === entry.sessionId;
               const isUnread = !isSelected && unreadSessionIds.has(entry.sessionId);
               return (
-                <button
+                <div
                   key={entry.sessionId}
-                  type="button"
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors',
+                    'group flex items-center rounded-lg transition-colors',
                     isSelected ? 'bg-primary/10 text-foreground' : 'hover:bg-accent/50',
                   )}
-                  onClick={() => onSessionClick(entry)}
-                  title={`${entry.projectName} — ${entry.sessionName || t('projects.newSession')}`}
                 >
-                  <div className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
-                    {entry.isRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                    ) : (
-                      <SessionProviderLogo provider={entry.provider} className="h-4 w-4" />
-                    )}
-                    {isUnread && (
-                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className={cn('truncate text-sm', isUnread ? 'font-semibold' : 'font-medium')}>
-                      {entry.sessionName || t('projects.newSession')}
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+                    onClick={() => onSessionClick(entry)}
+                    title={`${entry.projectName} — ${entry.sessionName || t('projects.newSession')}`}
+                  >
+                    <div className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                      {entry.isRunning ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                      ) : (
+                        <SessionProviderLogo provider={entry.provider} className="h-4 w-4" />
+                      )}
+                      {isUnread && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500" />}
                     </div>
-                    <div className="truncate text-[11px] text-muted-foreground">{entry.projectName}</div>
-                  </div>
-                  <span className="flex-shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                    {entry.isRunning
-                      ? t('recentSessions.running', 'working')
-                      : formatCompactAge(entry.lastActivity, currentTime)}
-                  </span>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('truncate text-sm', isUnread ? 'font-semibold' : 'font-medium')}>
+                        {entry.sessionName || t('projects.newSession')}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">{entry.projectName}</div>
+                    </div>
+                    <span className="flex-shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                      {entry.isRunning
+                        ? t('recentSessions.running', 'working')
+                        : formatCompactAge(entry.lastActivity, currentTime)}
+                    </span>
+                  </button>
+                  {!entry.isRunning && (
+                    <button
+                      type="button"
+                      className="mr-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-opacity hover:bg-accent hover:text-foreground md:opacity-0 md:focus:opacity-100 md:group-hover:opacity-100"
+                      onClick={() => hideSession(entry.sessionId)}
+                      title={t('recentSessions.hide', 'Remove from recent sessions (comes back when there is new activity)')}
+                      aria-label={t('recentSessions.hide', 'Remove from recent sessions (comes back when there is new activity)')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }
