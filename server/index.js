@@ -13,8 +13,20 @@ import mime from 'mime-types';
 import Database from 'better-sqlite3';
 
 import { AppError, FORBIDDEN_WORKSPACE_PATHS, WORKSPACES_ROOT, getOpenCodeDatabasePath, getReportedClaudeContextWindow, normalizeProjectPath, resolveClaudeContextWindow, validateWorkspacePath } from '@/shared/utils.js';
-import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
-import { createWebSocketServer } from '@/modules/websocket/index.js';
+import {
+    closeSessionsWatcher,
+    initializeSessionsWatcher,
+    configureShellPresence,
+    getPendingShellReportCount,
+    prepareTerminalLaunch,
+    resolveDerivedSessionsHttpPort,
+    startDerivedSessionsHttpServer,
+} from '@/modules/providers/index.js';
+import {
+    createWebSocketServer,
+    isConversationOpenInShell,
+    notifyShellPendingReports,
+} from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
 
@@ -150,8 +162,17 @@ const wss = createWebSocketServer(server, {
         normalizeDetectedUrl,
         extractUrlsFromText,
         shouldAutoOpenUrlFromOutput,
+        prepareClaudeTerminal: prepareTerminalLaunch,
+        getPendingReportCount: getPendingShellReportCount,
     },
     getPluginPort,
+});
+
+// A report for a parent whose Claude CLI runs in a Shell terminal waits there
+// for the parent's next turn instead of starting a second CLI on it.
+configureShellPresence({
+    isOpen: isConversationOpenInShell,
+    onPendingChanged: notifyShellPendingReports,
 });
 
 // Make WebSocket server available to routes
@@ -1903,6 +1924,13 @@ async function startServer() {
 
         console.log(`${c.info('[INFO]')} To run in development mode with hot-module replacement, go to http://${DISPLAY_HOST}:${VITE_PORT}`);
    
+        // Derived-sessions tools for Claude CLIs started in the Shell tab
+        // (127.0.0.1 only). A failure only leaves terminals without them.
+        const derivedSessionsHttpPort = resolveDerivedSessionsHttpPort(SERVER_PORT);
+        if (derivedSessionsHttpPort) {
+            await startDerivedSessionsHttpServer(derivedSessionsHttpPort);
+        }
+
         server.listen(SERVER_PORT, HOST, async () => {
             const appInstallPath = APP_ROOT;
 

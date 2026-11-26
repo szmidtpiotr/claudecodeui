@@ -2,3 +2,4 @@ export { WS_OPEN_STATE, connectedClients } from './services/websocket-state.serv
 export { createWebSocketServer } from './services/websocket-server.service.js';
 export { WebSocketWriter } from './services/websocket-writer.service.js';
 export { markSessionChangedByChat } from './services/shell-tmux.service.js';
+export { isConversationOpenInShell, notifyShellPendingReports } from './services/shell-websocket.service.js';

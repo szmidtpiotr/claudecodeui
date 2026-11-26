@@ -5,9 +5,12 @@ import path from 'node:path';
 import pty, { type IPty } from 'node-pty';
 import { WebSocket, type RawData } from 'ws';
 
+import { sessionsDb } from '@/modules/database/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 import {
   buildTmuxClientArgs,
+  DERIVED_TOOLS_ENV,
+  hasDerivedToolsTerminal,
   cancelTmuxCopyMode,
   leaveCopyModeBeforeTyping,
   closeTerminalIfOutdated,
@@ -38,6 +41,8 @@ type PtySessionEntry = {
   timeoutId: NodeJS.Timeout | null;
   projectPath: string;
   sessionId: string | null;
+  /** Conversation of a Claude CLI started here with the derived-sessions tools. */
+  derivedToolsSessionId: string | null;
 };
 
 const ptySessionsMap = new Map<string, PtySessionEntry>();
@@ -50,6 +55,16 @@ type ShellWebSocketDependencies = {
   normalizeDetectedUrl: (url: string) => string | null;
   extractUrlsFromText: (content: string) => string[];
   shouldAutoOpenUrlFromOutput: (content: string) => boolean;
+  /**
+   * Writes the --mcp-config/--settings files that give a terminal's Claude
+   * CLI the derived-sessions tools; null when they are unavailable.
+   */
+  prepareClaudeTerminal?: (
+    sessionId: string,
+    userId: string | number | null
+  ) => { mcpConfigPath: string; settingsPath: string } | null;
+  /** Reports from derived sessions waiting for a conversation. */
+  getPendingReportCount?: (sessionId: string) => number;
 };
 
 /**
@@ -86,13 +101,81 @@ function parseShellMessage(rawMessage: RawData): ShellIncomingMessage | null {
   return payload as ShellIncomingMessage;
 }
 
+/** Shell tabs showing a Claude conversation, for the "reports waiting" notice. */
+const conversationSockets = new Map<string, Set<WebSocket>>();
+/** tmux sessions started here per conversation (the name may use the client's path spelling). */
+const conversationTmuxNames = new Map<string, Set<string>>();
+
+function sendPendingReports(ws: WebSocket, sessionId: string, count: number): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'derived-reports', sessionId, pending: count }));
+  }
+}
+
+/**
+ * True while a Claude CLI that has the derived-sessions hooks runs in a
+ * terminal on this conversation. A terminal without them (started before
+ * this feature, or a fallback `claude`) does not count: reports for it are
+ * delivered the chat's way, as before.
+ */
+export function isConversationOpenInShell(sessionId: string): boolean {
+  for (const entry of ptySessionsMap.values()) {
+    if (entry.derivedToolsSessionId === sessionId) {
+      return true;
+    }
+  }
+  if (!isTmuxEnabled()) {
+    return false;
+  }
+  const names = new Set(conversationTmuxNames.get(sessionId) ?? []);
+  const projectPath = sessionsDb.getSessionById(sessionId)?.project_path;
+  if (projectPath) {
+    names.add(tmuxSessionName(`${projectPath}_${sessionId}`));
+  }
+  for (const name of names) {
+    if (hasDerivedToolsTerminal(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Tells every Shell tab showing the conversation how many reports wait for it. */
+export function notifyShellPendingReports(sessionId: string, count: number): void {
+  for (const socket of conversationSockets.get(sessionId) ?? []) {
+    sendPendingReports(socket, sessionId, count);
+  }
+}
+
+/**
+ * `claude` flags that hand the CLI the derived-sessions tools and hooks for
+ * `sessionId` (file paths only; the token stays inside the 0600 files).
+ */
+function derivedToolsFlags(
+  dependencies: ShellWebSocketDependencies,
+  sessionId: string | null,
+  userId: string | number | null
+): string {
+  if (!sessionId || os.platform() === 'win32' || !dependencies.prepareClaudeTerminal) {
+    return '';
+  }
+  try {
+    const launch = dependencies.prepareClaudeTerminal(sessionId, userId);
+    return launch ? ` --mcp-config "${launch.mcpConfigPath}" --settings "${launch.settingsPath}"` : '';
+  } catch (error) {
+    console.error('[ERROR] Shell: derived-sessions config not written:', error instanceof Error ? error.message : String(error));
+    return '';
+  }
+}
+
 /**
  * Resolves provider command line for plain shell and agent-backed shell modes.
  */
 function buildShellCommand(
   message: ShellIncomingMessage,
   dependencies: ShellWebSocketDependencies,
-  newClaudeSessionId: string | null = null
+  newClaudeSessionId: string | null = null,
+  claudeFlags = ''
 ): string {
   const hasSession = readBoolean(message.hasSession);
   const sessionId = readString(message.sessionId);
@@ -160,10 +243,10 @@ function buildShellCommand(
     if (os.platform() === 'win32') {
       return `claude --resume "${sessionId}"; if ($LASTEXITCODE -ne 0) { claude }`;
     }
-    return `claude --resume "${sessionId}" || claude`;
+    return `claude${claudeFlags} --resume "${sessionId}" || claude`;
   }
   if (newClaudeSessionId) {
-    return `${command} --session-id "${newClaudeSessionId}"`;
+    return `${command}${claudeFlags} --session-id "${newClaudeSessionId}"`;
   }
   return command;
 }
@@ -183,7 +266,8 @@ function isFreshClaudeSession(message: ShellIncomingMessage): boolean {
  */
 export function handleShellConnection(
   ws: WebSocket,
-  dependencies: ShellWebSocketDependencies
+  dependencies: ShellWebSocketDependencies,
+  userId: string | number | null = null
 ): void {
   console.log('[INFO] Shell websocket connected');
 
@@ -194,6 +278,24 @@ export function handleShellConnection(
   let trackedNewSession: { projectPath: string; sessionId: string } | null = null;
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
+  // The Claude conversation this tab shows, for the "reports waiting" notice.
+  let watchedConversation: string | null = null;
+  const watchConversation = (conversationId: string | null) => {
+    if (watchedConversation) {
+      conversationSockets.get(watchedConversation)?.delete(ws);
+    }
+    watchedConversation = conversationId;
+    if (!conversationId) {
+      return;
+    }
+    const sockets = conversationSockets.get(conversationId) ?? new Set<WebSocket>();
+    sockets.add(ws);
+    conversationSockets.set(conversationId, sockets);
+    const pending = dependencies.getPendingReportCount?.(conversationId) ?? 0;
+    if (pending > 0) {
+      sendPendingReports(ws, conversationId, pending);
+    }
+  };
 
   ws.on('message', async (rawMessage) => {
     try {
@@ -266,6 +368,12 @@ export function handleShellConnection(
           }
         }
 
+        const isClaudeAgent = !isPlainShell && !isLoginCommand && provider === 'claude';
+        const claudeConversationId = isClaudeAgent
+          ? (readBoolean(data.hasSession) && readString(data.sessionId)) || newClaudeSessionId
+          : null;
+        watchConversation(claudeConversationId || null);
+
         const existingSession = isLoginCommand ? null : ptySessionsMap.get(ptySessionKey);
         if (existingSession) {
           shellProcess = existingSession.pty;
@@ -312,8 +420,15 @@ export function handleShellConnection(
           return;
         }
 
-        const shellCommand = buildShellCommand(data, dependencies, newClaudeSessionId);
-        const sessionEnv = { COLORTERM: 'truecolor', FORCE_COLOR: '3' };
+        // The tools need the conversation id up front: a resume or a new
+        // conversation under an id chosen here (tmux).
+        const claudeFlags = claudeConversationId ? derivedToolsFlags(dependencies, claudeConversationId, userId) : '';
+        const shellCommand = buildShellCommand(data, dependencies, newClaudeSessionId, claudeFlags);
+        const sessionEnv: Record<string, string> = { COLORTERM: 'truecolor', FORCE_COLOR: '3' };
+        if (claudeFlags) {
+          // Marks the tmux session as one whose CLI has the hooks.
+          sessionEnv[DERIVED_TOOLS_ENV] = '1';
+        }
         let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         let shellArgs =
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
@@ -334,6 +449,11 @@ export function handleShellConnection(
           });
           if (trackedNewSession) {
             trackNewSessionClient(trackedNewSession.projectPath, trackedNewSession.sessionId, 1);
+          }
+          if (claudeConversationId) {
+            const names = conversationTmuxNames.get(claudeConversationId) ?? new Set<string>();
+            names.add(tmuxName);
+            conversationTmuxNames.set(claudeConversationId, names);
           }
         }
         const termCols = readNumber(data.cols, 80);
@@ -358,6 +478,8 @@ export function handleShellConnection(
           timeoutId: null,
           projectPath,
           sessionId,
+          // tmux clients come and go; the tmux session itself is checked instead.
+          derivedToolsSessionId: claudeFlags && !tmuxName ? claudeConversationId : null,
         });
 
         shellProcess.onData((chunk) => {
@@ -533,6 +655,7 @@ export function handleShellConnection(
   });
 
   ws.on('close', () => {
+    watchConversation(null);
     if (!ptySessionKey) {
       return;
     }

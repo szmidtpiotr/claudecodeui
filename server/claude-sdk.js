@@ -40,6 +40,7 @@ import {
   derivedSessionsAllowedTools,
   DERIVED_SESSIONS_SERVER_NAME,
   rememberSessionRunOptions,
+  releaseShellReports,
 } from './modules/providers/index.js';
 import {
   createNormalizedMessage,
@@ -1254,6 +1255,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
     const sessionExtras = { backgroundTaskCount: () => backgroundTasks.size(), cwd: options.cwd || null };
     if (capturedSessionId) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer, sessionExtras);
+      // Reports that waited while the conversation was open in a terminal
+      // join this turn (no-op when none wait).
+      releaseShellReports(capturedSessionId);
     }
 
     // Process streaming messages
@@ -1312,6 +1316,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
         capturedSessionId = message.session_id;
         addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir, ws, pushChannel, steer, sessionExtras);
         rememberSessionRunOptions(capturedSessionId, options);
+        releaseShellReports(capturedSessionId);
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {

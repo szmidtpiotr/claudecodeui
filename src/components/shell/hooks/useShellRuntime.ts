@@ -111,7 +111,7 @@ export function useShellRuntime({
     onImageFilesRef,
   });
 
-  const { isConnected, isConnecting, connectToShell, disconnectFromShell } = useShellConnection({
+  const { isConnected, isConnecting, pendingDerivedReports, connectToShell, disconnectFromShell } = useShellConnection({
     wsRef,
     terminalRef,
     fitAddonRef,
@@ -162,6 +162,7 @@ export function useShellRuntime({
     isConnected,
     isInitialized,
     isConnecting,
+    pendingDerivedReports,
     authUrl,
     authUrlVersion,
     connectToShell,

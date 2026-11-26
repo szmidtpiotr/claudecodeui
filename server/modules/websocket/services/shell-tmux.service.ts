@@ -94,6 +94,23 @@ export function tmuxSessionName(sessionKey: string): string {
   return SESSION_PREFIX + crypto.createHash('sha1').update(sessionKey).digest('hex').slice(0, 16);
 }
 
+/** Set in the tmux session of a Claude CLI started with the derived-sessions hooks. */
+export const DERIVED_TOOLS_ENV = 'CCUI_DERIVED_TOOLS';
+
+/** True when the named tmux session exists and its CLI was started with the derived-sessions hooks. */
+export function hasDerivedToolsTerminal(name: string): boolean {
+  try {
+    const value = execFileSync(
+      'tmux',
+      ['-L', TMUX_SOCKET, 'show-environment', '-t', `=${name}`, DERIVED_TOOLS_ENV],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }
+    ).toString().trim();
+    return value === `${DERIVED_TOOLS_ENV}=1`;
+  } catch {
+    return false;
+  }
+}
+
 export function hasTmuxSession(name: string): boolean {
   try {
     execFileSync('tmux', ['-L', TMUX_SOCKET, 'has-session', '-t', `=${name}`], { stdio: 'ignore' });

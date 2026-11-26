@@ -54,7 +54,11 @@ export function createWebSocketServer(
     const pathname = new URL(url, 'http://localhost').pathname;
 
     if (pathname === '/shell') {
-      handleShellConnection(ws, dependencies.shell);
+      const user = incomingRequest.user as { id?: unknown; userId?: unknown } | undefined;
+      const shellUserId = typeof user?.id === 'string' || typeof user?.id === 'number'
+        ? user.id
+        : typeof user?.userId === 'string' || typeof user?.userId === 'number' ? user.userId : null;
+      handleShellConnection(ws, dependencies.shell, shellUserId);
       return;
     }
 

@@ -99,6 +99,7 @@ export default function Shell({
     isConnected,
     isInitialized,
     isConnecting,
+    pendingDerivedReports,
     authUrl,
     authUrlVersion,
     connectToShell,
@@ -430,6 +431,18 @@ export default function Shell({
         restartTitle={t('shell.actions.restartTitle')}
         disableRestart={isRestarting || isConnected}
       />
+
+      {pendingDerivedReports > 0 && isConnected && (
+        <div
+          role="status"
+          className="border-b border-amber-700/60 bg-amber-900/40 px-3 py-1.5 text-xs text-amber-100"
+        >
+          {t('shell.derivedReportsWaiting', {
+            count: pendingDerivedReports,
+            defaultValue: '{{count}} message(s) from derived sessions waiting - delivered with your next message here or in Chat.',
+          })}
+        </div>
+      )}
 
       <div className="relative flex-1 overflow-hidden p-2">
         <div

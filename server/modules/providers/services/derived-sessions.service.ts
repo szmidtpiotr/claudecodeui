@@ -89,8 +89,40 @@ const relayTurnTimes = new Map<string, number[]>();
 /** The user each session's headless output is attributed to (notifications). */
 const sessionUsers = new Map<string, string | number | null>();
 
+/**
+ * Where a session's CLI runs outside this process: the Shell tab starts a
+ * plain `claude` in a terminal. A report for a parent open there must not
+ * start a second CLI on the same conversation (the terminal would never see
+ * it and the two would write one transcript); it waits in a queue instead and
+ * the terminal's hooks hand it over at the parent's next turn.
+ */
+export type ShellPresence = {
+  /** True while a Claude CLI for this conversation is running in a terminal. */
+  isOpen: (sessionId: string) => boolean;
+  /** The number of reports waiting for this session changed. */
+  onPendingChanged?: (sessionId: string, count: number) => void;
+};
+
+export type QueuedShellReport = {
+  messageId: string;
+  childSessionId: string;
+  content: string;
+  queuedAt: number;
+};
+
+let shellPresence: ShellPresence | null = null;
+/** Reports waiting for a parent that is open in a terminal, oldest first. */
+const shellQueues = new Map<string, QueuedShellReport[]>();
+/** How often a queue whose terminal may have closed is checked. */
+const SHELL_QUEUE_CHECK_MS = 10 * 1000;
+let shellQueueTimer: NodeJS.Timeout | null = null;
+
 export function configureDerivedSessionsRuntime(next: DerivedSessionsRuntime | null): void {
   runtime = next;
+}
+
+export function configureShellPresence(next: ShellPresence | null): void {
+  shellPresence = next;
 }
 
 /** Clears all in-memory state; tests only. */
@@ -101,6 +133,12 @@ export function resetDerivedSessionsStateForTests(): void {
   deliveryQueues.clear();
   relayTurnTimes.clear();
   sessionUsers.clear();
+  shellQueues.clear();
+  shellPresence = null;
+  if (shellQueueTimer) {
+    clearInterval(shellQueueTimer);
+    shellQueueTimer = null;
+  }
 }
 
 function requireRuntime(): DerivedSessionsRuntime {
@@ -427,6 +465,8 @@ async function waitForTurnStart(sessionId: string, settled: Promise<void>): Prom
 export type ReportDelivery =
   | { mode: 'steered'; messageId: string }
   | { mode: 'new_turn'; messageId: string }
+  /** The parent is open in a terminal; handed over at its next turn there or in the chat. */
+  | { mode: 'queued'; messageId: string }
   | { mode: 'dropped'; reason: 'relay_limit' | 'parent_missing' | 'error'; detail?: string };
 
 /**
@@ -540,6 +580,11 @@ function deliverToParent(input: {
       await ending;
     }
 
+    if (isOpenInShell(parentId)) {
+      enqueueShellReport(parentId, { messageId, childSessionId: input.childSessionId, content, queuedAt: Date.now() });
+      return { mode: 'queued', messageId };
+    }
+
     const parent = sessionsDb.getSessionById(parentId);
     if (!parent?.project_path) {
       console.warn(`[derived-sessions] report from ${input.childSessionId} dropped: parent ${parentId} not found`);
@@ -600,4 +645,101 @@ export function listDerivedSessions(parentSessionId: string): DerivedSessionList
     lastUpdate: row.updated_at ?? null,
     createdAt: row.created_at ?? null,
   }));
+}
+
+function isOpenInShell(sessionId: string): boolean {
+  try {
+    return Boolean(shellPresence?.isOpen(sessionId));
+  } catch (error) {
+    console.error('[derived-sessions] shell presence check failed', sessionId, error);
+    return false;
+  }
+}
+
+function notifyPending(sessionId: string): void {
+  try {
+    shellPresence?.onPendingChanged?.(sessionId, shellQueues.get(sessionId)?.length ?? 0);
+  } catch (error) {
+    console.error('[derived-sessions] pending notification failed', sessionId, error);
+  }
+}
+
+function enqueueShellReport(parentSessionId: string, report: QueuedShellReport): void {
+  const queue = shellQueues.get(parentSessionId) ?? [];
+  queue.push(report);
+  shellQueues.set(parentSessionId, queue);
+  notifyPending(parentSessionId);
+  ensureShellQueueWatch();
+}
+
+/** Reports waiting for a session that is open in a terminal. */
+export function getPendingShellReportCount(sessionId: string): number {
+  return shellQueues.get(sessionId)?.length ?? 0;
+}
+
+/**
+ * Hands the waiting reports to the caller and forgets them, so each one is
+ * delivered once. `turnStart` marks a hand-over that makes the parent go on
+ * by itself (the terminal's Stop hook): it counts against the relay limit
+ * like a report-started turn, and when the limit is reached nothing is taken
+ * (the reports wait for the user's next message).
+ */
+export function takeShellReports(sessionId: string, options: { turnStart?: boolean } = {}): QueuedShellReport[] {
+  const queue = shellQueues.get(sessionId);
+  if (!queue || queue.length === 0) {
+    return [];
+  }
+  if (options.turnStart && !takeRelayBudget(sessionId)) {
+    console.warn(`[derived-sessions] ${queue.length} report(s) for ${sessionId} wait for the next message: relay limit reached`);
+    return [];
+  }
+  shellQueues.delete(sessionId);
+  notifyPending(sessionId);
+  return queue;
+}
+
+/**
+ * Delivers the reports waiting for a session the normal way: into its chat
+ * turn when one runs (called when a chat turn starts), otherwise as a new
+ * turn once its terminal is gone. Reports whose parent is still open in a
+ * terminal and idle go straight back to the queue.
+ */
+export function releaseShellReports(sessionId: string): void {
+  const queue = shellQueues.get(sessionId);
+  if (!queue || queue.length === 0 || !runtime) {
+    return;
+  }
+  shellQueues.delete(sessionId);
+  notifyPending(sessionId);
+  for (const report of queue) {
+    void deliverToParent({ parentSessionId: sessionId, childSessionId: report.childSessionId, content: report.content });
+  }
+}
+
+/** Reports must not wait forever for a terminal that was closed. */
+function ensureShellQueueWatch(): void {
+  if (shellQueueTimer) {
+    return;
+  }
+  shellQueueTimer = setInterval(() => {
+    for (const sessionId of [...shellQueues.keys()]) {
+      if (!isOpenInShell(sessionId)) {
+        releaseShellReports(sessionId);
+      }
+    }
+    if (shellQueues.size === 0 && shellQueueTimer) {
+      clearInterval(shellQueueTimer);
+      shellQueueTimer = null;
+    }
+  }, SHELL_QUEUE_CHECK_MS);
+  shellQueueTimer.unref?.();
+}
+
+/** Runs one round of the closed-terminal check now; tests only. */
+export function checkShellQueuesForTests(): void {
+  for (const sessionId of [...shellQueues.keys()]) {
+    if (!isOpenInShell(sessionId)) {
+      releaseShellReports(sessionId);
+    }
+  }
 }

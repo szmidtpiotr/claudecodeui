@@ -6,7 +6,8 @@
  *
  * One server instance is created per chat turn (queryClaudeSDK call), so the
  * per-turn creation counter lives in its closure. Unattended runs (agent API,
- * commit messages) never receive it. Forks (the Fork button) are a separate
+ * commit messages) never receive it. A CLI started in the Shell tab reaches
+ * the same tools over HTTP: see derived-sessions-http.service.ts. Forks (the Fork button) are a separate
  * thing: see session-fork.service.ts.
  */
 import { createSdkMcpServer, getSessionMessages as sdkGetSessionMessages, tool } from '@anthropic-ai/claude-agent-sdk';
@@ -206,6 +207,13 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
     if (!outcome) {
       return text({ parentSessionId, delivery: 'queued', note: 'The message is queued and will reach the parent session shortly.' });
     }
+    if (outcome.mode === 'queued') {
+      return text({
+        parentSessionId,
+        delivery: 'queued',
+        note: 'The parent session is open in a terminal; the message waits there and reaches it at its next turn.',
+      });
+    }
     if (outcome.mode === 'dropped') {
       const why = outcome.reason === 'relay_limit'
         ? 'the parent session received too many messages from derived sessions recently; try again later'
@@ -228,9 +236,18 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
   };
 }
 
-/** The tool definitions of a run; send_to_parent_session only when the session has a parent. */
-export function buildDerivedSessionsTools(context: DerivedSessionsContext) {
-  const handlers = createDerivedSessionHandlers(context);
+export type DerivedSessionHandlers = ReturnType<typeof createDerivedSessionHandlers>;
+
+/**
+ * The tool definitions of a run; send_to_parent_session only when the session
+ * has a parent. `handlers` carries the per-turn state (the creation counter):
+ * the chat builds one set per turn, the terminal (HTTP) path keeps one set per
+ * turn across the many requests of that turn.
+ */
+export function buildDerivedSessionsTools(
+  context: DerivedSessionsContext,
+  handlers: DerivedSessionHandlers = createDerivedSessionHandlers(context),
+) {
   const parentSessionId = context.parentSessionId === undefined
     ? getParentSessionId(context.getCurrentSessionId())
     : context.parentSessionId;
@@ -295,10 +312,10 @@ export function buildDerivedSessionsTools(context: DerivedSessionsContext) {
   ];
 }
 
-export function createDerivedSessionsMcpServer(context: DerivedSessionsContext) {
+export function createDerivedSessionsMcpServer(context: DerivedSessionsContext, handlers?: DerivedSessionHandlers) {
   return createSdkMcpServer({
     name: DERIVED_SESSIONS_SERVER_NAME,
     version: '2.1.0',
-    tools: buildDerivedSessionsTools(context),
+    tools: buildDerivedSessionsTools(context, handlers),
   });
 }

@@ -30,6 +30,8 @@ type UseShellConnectionOptions = {
 
 type UseShellConnectionResult = {
   isConnected: boolean;
+  /** Reports from derived sessions waiting for this conversation's next turn. */
+  pendingDerivedReports: number;
   isConnecting: boolean;
   closeSocket: () => void;
   connectToShell: () => void;
@@ -54,6 +56,7 @@ export function useShellConnection({
 }: UseShellConnectionOptions): UseShellConnectionResult {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [pendingDerivedReports, setPendingDerivedReports] = useState(0);
   const connectingRef = useRef(false);
   const suppressAutoConnectRef = useRef(false);
 
@@ -99,6 +102,12 @@ export function useShellConnection({
         return;
       }
 
+      if (message.type === 'derived-reports') {
+        const pending = typeof message.pending === 'number' ? message.pending : 0;
+        setPendingDerivedReports(Math.max(0, pending));
+        return;
+      }
+
       if (message.type === 'auth_url' || message.type === 'url_open') {
         const nextAuthUrl = typeof message.url === 'string' ? message.url : '';
         if (nextAuthUrl) {
@@ -129,6 +138,7 @@ export function useShellConnection({
         wsRef.current = socket;
 
         socket.onopen = () => {
+          setPendingDerivedReports(0);
           setIsConnected(true);
           setIsConnecting(false);
           connectingRef.current = false;
@@ -236,6 +246,7 @@ export function useShellConnection({
 
   return {
     isConnected,
+    pendingDerivedReports,
     isConnecting,
     closeSocket,
     connectToShell,

@@ -16,5 +16,13 @@ export {
   configureDerivedSessionsRuntime,
   getParentSessionId,
   isDerivedHeadlessTurnRunning,
+  configureShellPresence,
+  getPendingShellReportCount,
   rememberSessionRunOptions,
+  releaseShellReports,
 } from './services/derived-sessions.service.js';
+export {
+  prepareTerminalLaunch,
+  resolveDerivedSessionsHttpPort,
+  startDerivedSessionsHttpServer,
+} from './services/derived-sessions-http.service.js';

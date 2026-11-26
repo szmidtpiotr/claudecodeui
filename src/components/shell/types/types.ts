@@ -44,6 +44,7 @@ export type ShellIncomingMessage =
   | { type: 'output'; data: string }
   | { type: 'auth_url'; url?: string }
   | { type: 'url_open'; url?: string }
+  | { type: 'derived-reports'; sessionId?: string; pending?: number }
   | { type: string; [key: string]: unknown };
 
 export type UseShellRuntimeOptions = {
@@ -81,6 +82,8 @@ export type UseShellRuntimeResult = {
   isConnected: boolean;
   isInitialized: boolean;
   isConnecting: boolean;
+  /** Reports from derived sessions waiting for this conversation's next turn. */
+  pendingDerivedReports: number;
   authUrl: string;
   authUrlVersion: number;
   connectToShell: () => void;
