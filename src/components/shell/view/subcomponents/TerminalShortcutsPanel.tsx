@@ -6,6 +6,7 @@ import type { Terminal } from '@xterm/xterm';
 import { sendSocketMessage } from '../../utils/socket';
 import { ARROW_SEQUENCES } from '../../utils/arrowPad';
 import { applyStickyModifiers, type StickyModifiers } from '../../utils/modifiers';
+import { NEWLINE_SEQUENCE } from '../../utils/newlineKey';
 
 type Shortcut =
   | { type: 'key'; id: string; label: string; sequence: string; accent?: boolean }
@@ -26,7 +27,7 @@ const MOBILE_KEYS: Shortcut[] = [
   { type: 'key', id: 'shift-tab', label: '⇧Tab', sequence: '\x1b[Z' },
   { type: 'key', id: 'enter', label: '⏎', sequence: '\r' },
   // Ctrl+J: a line break inside the prompt, where Enter would send it.
-  { type: 'key', id: 'newline', label: '⇧⏎', sequence: '\n' },
+  { type: 'key', id: 'newline', label: '⇧⏎', sequence: NEWLINE_SEQUENCE },
   { type: 'key', id: 'ctrl-c', label: 'Ctrl+C', sequence: '\x03', accent: true },
   { type: 'modifier', id: 'alt', label: 'ALT', modifier: 'alt' },
   // Characters buried two layers deep on a phone keyboard

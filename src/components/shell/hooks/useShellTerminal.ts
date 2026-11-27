@@ -21,6 +21,7 @@ import { attachTouchScroll } from '../utils/touchScroll';
 import { attachImeDirectInput } from '../utils/imeDirectInput';
 import { imageFilesFrom } from '../utils/clipboardImage';
 import { hasSoftKeyboard } from '../../../utils/device';
+import { isShiftEnter, NEWLINE_SEQUENCE } from '../utils/newlineKey';
 
 // CLIs running inside the pty (e.g. `claude auth login`'s "press c to copy"
 // device-flow prompt) write to the clipboard via an OSC 52 escape sequence,
@@ -284,6 +285,16 @@ export function useShellTerminal({
         // included). xterm.js pastes the text; an image is picked up by the
         // paste listener above and attached as a file. Returning false only
         // keeps xterm.js from sending a literal Ctrl+V to the program.
+        return false;
+      }
+
+      // Shift+Enter: a new line in the prompt instead of sending it. All
+      // event types are swallowed, so xterm.js never sends its own "\r".
+      if (isShiftEnter(event)) {
+        if (event.type === 'keydown') {
+          event.preventDefault();
+          sendSocketMessage(wsRef.current, { type: 'input', data: NEWLINE_SEQUENCE });
+        }
         return false;
       }
 
