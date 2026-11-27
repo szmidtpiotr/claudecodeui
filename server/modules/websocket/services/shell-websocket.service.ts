@@ -9,8 +9,16 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { parseIncomingJsonObject } from '@/shared/utils.js';
 import {
   buildTmuxClientArgs,
+  currentClaudeCliVersion,
   DERIVED_TOOLS_ENV,
   hasDerivedToolsTerminal,
+  hasTmuxSession,
+  readTmuxSessionEnvironment,
+  respawnTerminal,
+  TERMINAL_CLI_ENV,
+  TERMINAL_CONTRACT_ENV,
+  terminalOutdatedReasons,
+  type TerminalOutdatedReason,
   cancelTmuxCopyMode,
   leaveCopyModeBeforeTyping,
   closeTerminalIfOutdated,
@@ -66,6 +74,8 @@ type ShellWebSocketDependencies = {
   ) => { mcpConfigPath: string; settingsPath: string } | null;
   /** Reports from derived sessions waiting for a conversation. */
   getPendingReportCount?: (sessionId: string) => number;
+  /** Fingerprint of what a terminal's CLI reads only at start (null: tools not served). */
+  getTerminalFingerprint?: () => string | null;
   /** Records the permission mode / tool settings the Chat tab uses for a conversation. */
   rememberChatRunOptions?: (sessionId: string, options: Record<string, unknown>) => void;
 };
@@ -178,6 +188,37 @@ export function isConversationOpenInShell(sessionId: string): boolean {
     }
   }
   return false;
+}
+
+function sendTerminalOutdated(ws: WebSocket, reasons: TerminalOutdatedReason[]): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'terminal-outdated', reasons }));
+  }
+}
+
+/**
+ * A tmux terminal's command: when resuming the conversation fails, it says so
+ * instead of starting a fresh CLI filed under this conversation.
+ */
+function wrapTmuxCommand(shellCommand: string): string {
+  const fallback = ' || claude';
+  return shellCommand.endsWith(fallback)
+    ? `${shellCommand.slice(0, -fallback.length)} || { echo; echo "The conversation was not resumed. Open the Shell tab again to retry."; sleep 6; }`
+    : shellCommand;
+}
+
+/** What a terminal started now records about its launch (see terminalOutdatedReasons). */
+function launchEnvironment(dependencies: ShellWebSocketDependencies): Record<string, string> {
+  const env: Record<string, string> = { [DERIVED_TOOLS_ENV]: '1' };
+  const contract = dependencies.getTerminalFingerprint?.() ?? null;
+  if (contract) {
+    env[TERMINAL_CONTRACT_ENV] = contract;
+  }
+  const cli = currentClaudeCliVersion();
+  if (cli) {
+    env[TERMINAL_CLI_ENV] = cli;
+  }
+  return env;
 }
 
 /** Tells every Shell tab showing the conversation how many reports wait for it. */
@@ -318,6 +359,8 @@ export function handleShellConnection(
   let trackedNewSession: { projectPath: string; sessionId: string } | null = null;
   let urlDetectionBuffer = '';
   const announcedAuthUrls = new Set<string>();
+  // The Claude terminal this connection shows, for "restart the terminal".
+  let restartable: { tmuxName: string; conversationId: string; cwd: string } | null = null;
   // The Claude conversation this tab shows, for the "reports waiting" notice.
   let watchedConversation: string | null = null;
   const watchConversation = (conversationId: string | null) => {
@@ -472,8 +515,9 @@ export function handleShellConnection(
         const shellCommand = buildShellCommand(data, dependencies, newClaudeSessionId, claudeFlags);
         const sessionEnv: Record<string, string> = { COLORTERM: 'truecolor', FORCE_COLOR: '3' };
         if (claudeFlags) {
-          // Marks the tmux session as one whose CLI has the hooks.
-          sessionEnv[DERIVED_TOOLS_ENV] = '1';
+          // Marks the tmux session as one whose CLI has the hooks, and what
+          // it was started with.
+          Object.assign(sessionEnv, launchEnvironment(dependencies));
         }
         let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         let shellArgs =
@@ -483,10 +527,21 @@ export function handleShellConnection(
           // The terminal is filed under its conversation. A fresh CLI started
           // as a fallback (resume declined at the trust prompt, or failed)
           // would stay attached there as if it were that conversation.
-          const fallback = ' || claude';
-          const tmuxCommand = shellCommand.endsWith(fallback)
-            ? `${shellCommand.slice(0, -fallback.length)} || { echo; echo "The conversation was not resumed. Open the Shell tab again to retry."; sleep 6; }`
-            : shellCommand;
+          const tmuxCommand = wrapTmuxCommand(shellCommand);
+          // Attaching to a terminal that is already running: its CLI keeps
+          // what it read when it started, however this server changed since.
+          if (claudeConversationId && hasTmuxSession(tmuxName)) {
+            const reasons = terminalOutdatedReasons(readTmuxSessionEnvironment(tmuxName) ?? {}, {
+              contract: dependencies.getTerminalFingerprint?.() ?? null,
+              cli: currentClaudeCliVersion(),
+            });
+            if (reasons.length > 0) {
+              sendTerminalOutdated(ws, reasons);
+            }
+          }
+          if (claudeConversationId) {
+            restartable = { tmuxName, conversationId: claudeConversationId, cwd: resolvedProjectPath };
+          }
           shellArgs = buildTmuxClientArgs({
             name: tmuxName,
             cwd: resolvedProjectPath,
@@ -676,6 +731,31 @@ export function handleShellConnection(
           shellProcess.resize(readNumber(data.cols, 80), readNumber(data.rows, 24));
           if (tmuxName) {
             resizeTmuxWindow(tmuxName, readNumber(data.cols, 80), readNumber(data.rows, 24));
+          }
+        }
+        return;
+      }
+
+      if (data.type === 'restart-terminal') {
+        if (!restartable) {
+          return;
+        }
+        const { tmuxName: name, conversationId, cwd } = restartable;
+        // Resume the conversation when it has a history; a terminal that has
+        // not run a turn yet starts it again under the same id.
+        const hasHistory = Boolean(sessionsDb.getSessionById(conversationId));
+        const flags = derivedToolsFlags(dependencies, conversationId, userId);
+        const command = wrapTmuxCommand(buildShellCommand(
+          { provider: 'claude', hasSession: hasHistory, sessionId: conversationId },
+          dependencies,
+          hasHistory ? null : conversationId,
+          flags
+        ));
+        const env = flags ? launchEnvironment(dependencies) : {};
+        if (respawnTerminal(name, cwd, command, env)) {
+          console.log(`[INFO] Shell tmux: restarted the CLI of ${name} on request`);
+          for (const socket of conversationSockets.get(conversationId) ?? [ws]) {
+            sendTerminalOutdated(socket, []);
           }
         }
         return;

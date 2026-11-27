@@ -271,6 +271,13 @@
     "resumeSession": "Resume session: {{displayName}}...",
     "runCommand": "Run {{command}} in {{projectName}}",
     "startCli": "Starting Claude CLI in {{projectName}}",
+    "terminalOutdated": {
+      "noTools": "This terminal was started before derived-session tools existed. Restart it to get them.",
+      "contract": "This terminal was started with an older version of the app. Restart it to load the changes.",
+      "cli": "A newer Claude Code is installed. Restart the terminal to use it.",
+      "note": "The conversation is resumed; a turn in progress is interrupted.",
+      "restart": "Restart terminal"
+    },
     "derivedReportsWaiting_one": "A message from a derived session is waiting - it is delivered with your next message here or in Chat.",
     "derivedReportsWaiting_other": "{{count}} messages from derived sessions are waiting - they are delivered with your next message here or in Chat.",
     "defaultCommand": "command",

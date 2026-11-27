@@ -36,7 +36,13 @@ export type ShellScrollBottomMessage = {
   type: 'scroll-bottom';
 };
 
+// Restarts the CLI of this tab's tmux terminal on the same conversation.
+export type ShellRestartTerminalMessage = {
+  type: 'restart-terminal';
+};
+
 export type ShellOutgoingMessage =
+  | ShellRestartTerminalMessage
   | ShellInitMessage
   | ShellResizeMessage
   | ShellInputMessage
@@ -47,6 +53,7 @@ export type ShellIncomingMessage =
   | { type: 'auth_url'; url?: string }
   | { type: 'url_open'; url?: string }
   | { type: 'derived-reports'; sessionId?: string; pending?: number }
+  | { type: 'terminal-outdated'; reasons?: unknown[] }
   | { type: string; [key: string]: unknown };
 
 export type UseShellRuntimeOptions = {
@@ -86,6 +93,8 @@ export type UseShellRuntimeResult = {
   isConnecting: boolean;
   /** Reports from derived sessions waiting for this conversation's next turn. */
   pendingDerivedReports: number;
+  terminalOutdatedReasons: string[];
+  restartTerminal: () => void;
   authUrl: string;
   authUrlVersion: number;
   connectToShell: () => void;

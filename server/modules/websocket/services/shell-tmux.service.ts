@@ -111,6 +111,96 @@ export function hasDerivedToolsTerminal(name: string): boolean {
   }
 }
 
+/** The launch fingerprint and Claude Code version a terminal's CLI was started with. */
+export const TERMINAL_CONTRACT_ENV = 'CCUI_TERMINAL_CONTRACT';
+export const TERMINAL_CLI_ENV = 'CCUI_TERMINAL_CLI';
+
+export type TerminalOutdatedReason = 'no-tools' | 'contract' | 'cli';
+
+/**
+ * Why a running terminal's CLI does not have what a new one would get. It
+ * reads its tool list, hooks and config only when it starts, so a rebuild of
+ * this server reaches it only after a restart of the CLI.
+ */
+export function terminalOutdatedReasons(
+  env: Record<string, string | undefined>,
+  current: { contract: string | null; cli: string | null }
+): TerminalOutdatedReason[] {
+  if (!current.contract) {
+    return []; // the tools are not served: nothing to catch up with
+  }
+  if (env[DERIVED_TOOLS_ENV] !== '1') {
+    return ['no-tools'];
+  }
+  const reasons: TerminalOutdatedReason[] = [];
+  if (env[TERMINAL_CONTRACT_ENV] !== current.contract) {
+    reasons.push('contract');
+  }
+  if (current.cli && env[TERMINAL_CLI_ENV] && env[TERMINAL_CLI_ENV] !== current.cli) {
+    reasons.push('cli');
+  }
+  return reasons;
+}
+
+/** The session environment of a tmux session (only plain NAME=value entries). */
+export function readTmuxSessionEnvironment(name: string): Record<string, string> | null {
+  try {
+    const listing = execFileSync('tmux', ['-L', TMUX_SOCKET, 'show-environment', '-t', `=${name}`], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    }).toString();
+    const env: Record<string, string> = {};
+    for (const line of listing.split('\n')) {
+      const separator = line.indexOf('=');
+      if (separator > 0 && !line.startsWith('-')) {
+        env[line.slice(0, separator)] = line.slice(separator + 1);
+      }
+    }
+    return env;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The installed Claude Code version (the native installer links `claude` to
+ * versions/<version>); null when it cannot be told.
+ */
+export function currentClaudeCliVersion(): string | null {
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (!dir) {
+      continue;
+    }
+    try {
+      return path.basename(fs.realpathSync(path.join(dir, 'claude')));
+    } catch {
+      // not in this directory
+    }
+  }
+  return null;
+}
+
+/**
+ * Replaces the CLI of a terminal with `command` in the same tmux window: the
+ * devices attached to it stay attached and see the new CLI start. `env` is
+ * recorded in the session environment (the launch fingerprint).
+ */
+export function respawnTerminal(name: string, cwd: string, command: string, env: Record<string, string>): boolean {
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      execFileSync('tmux', ['-L', TMUX_SOCKET, 'set-environment', '-t', `=${name}`, key, value], { stdio: 'ignore', timeout: 2000 });
+    }
+    execFileSync('tmux', ['-L', TMUX_SOCKET, 'respawn-pane', '-k', '-t', `=${name}:`, '-c', cwd, command], {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+    return true;
+  } catch (error) {
+    console.error('[ERROR] Shell tmux: restarting the terminal failed:', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
 export function hasTmuxSession(name: string): boolean {
   try {
     execFileSync('tmux', ['-L', TMUX_SOCKET, 'has-session', '-t', `=${name}`], { stdio: 'ignore' });

@@ -22,6 +22,7 @@ import {
     rememberSessionRunOptions,
     resolveDerivedSessionsHttpPort,
     startDerivedSessionsHttpServer,
+    terminalLaunchFingerprint,
 } from '@/modules/providers/index.js';
 import {
     createWebSocketServer,
@@ -166,6 +167,7 @@ const wss = createWebSocketServer(server, {
         prepareClaudeTerminal: prepareTerminalLaunch,
         getPendingReportCount: getPendingShellReportCount,
         rememberChatRunOptions: (sessionId, options) => rememberSessionRunOptions(sessionId, options),
+        getTerminalFingerprint: terminalLaunchFingerprint,
     },
     getPluginPort,
 });

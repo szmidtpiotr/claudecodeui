@@ -28,8 +28,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { z } from 'zod';
 
 import {
+  buildDerivedSessionsTools,
   createDerivedSessionHandlers,
   createDerivedSessionsMcpServer,
   DERIVED_SESSIONS_ALLOWED_TOOLS,
@@ -255,12 +257,23 @@ export function prepareTerminalLaunch(sessionId: string, userId: string | number
   }
   registerTerminalUser(sessionId, userId);
 
-  const base = `http://127.0.0.1:${listening.port}`;
   const headers = { Authorization: `Bearer ${issueSessionToken(sessionId)}`, 'X-Ccui-Session': sessionId };
   const dir = path.join(configRoot(), sessionId);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
 
+  const { mcpConfig, settings } = buildLaunchFiles(listening.port, headers);
+
+  const mcpConfigPath = path.join(dir, 'mcp.json');
+  const settingsPath = path.join(dir, 'settings.json');
+  writePrivate(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
+  writePrivate(settingsPath, JSON.stringify(settings, null, 2));
+  return { mcpConfigPath, settingsPath };
+}
+
+/** The --mcp-config and --settings contents for a terminal's CLI. */
+function buildLaunchFiles(port: number, headers: Record<string, string>) {
+  const base = `http://127.0.0.1:${port}`;
   const mcpConfig = {
     mcpServers: {
       'derived-sessions': { type: 'http', url: `${base}/mcp`, headers },
@@ -275,12 +288,35 @@ export function prepareTerminalLaunch(sessionId: string, userId: string | number
       Stop: hook('stop'),
     },
   };
+  return { mcpConfig, settings };
+}
 
-  const mcpConfigPath = path.join(dir, 'mcp.json');
-  const settingsPath = path.join(dir, 'settings.json');
-  writePrivate(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
-  writePrivate(settingsPath, JSON.stringify(settings, null, 2));
-  return { mcpConfigPath, settingsPath };
+/**
+ * A short hash of everything a terminal's CLI reads only when it starts:
+ * the launch files (without the per-terminal token) and the tool list it
+ * fetches once (names, descriptions, parameters). A terminal started under
+ * another value runs with an older contract and should be restarted to pick
+ * up the change. Computed, so nobody has to remember to bump a version. Null
+ * when the tools are not served.
+ */
+export function terminalLaunchFingerprint(): string | null {
+  if (!listening) {
+    return null;
+  }
+  const placeholder = { Authorization: 'Bearer <token>', 'X-Ccui-Session': '<session>' };
+  const tools = buildDerivedSessionsTools({
+    getCurrentSessionId: () => null,
+    parentOptions: {},
+    userId: null,
+    parentSessionId: '<parent>',
+  }).map((definition) => ({
+    name: definition.name,
+    description: definition.description,
+    input: z.toJSONSchema(z.object(definition.inputSchema)),
+    annotations: definition.annotations ?? null,
+  }));
+  const payload = JSON.stringify({ files: buildLaunchFiles(listening.port, placeholder), tools });
+  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 12);
 }
 
 function writePrivate(file: string, content: string): void {

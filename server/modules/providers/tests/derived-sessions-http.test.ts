@@ -17,6 +17,7 @@ import {
   resetDerivedSessionsHttpForTests,
   startDerivedSessionsHttpServer,
   stopDerivedSessionsHttpServer,
+  terminalLaunchFingerprint,
 } from '@/modules/providers/services/derived-sessions-http.service.js';
 import {
   checkShellQueuesForTests,
@@ -467,4 +468,23 @@ test('the Shell tab keeps only valid Chat settings from the browser', () => {
   assert.equal(sanitizeChatRunOptions({ permissionMode: 'rootMode' }), null);
   assert.equal(sanitizeChatRunOptions('bypassPermissions'), null);
   assert.equal(sanitizeChatRunOptions({ toolsSettings: { allowedTools: [1, 2] } }), null);
+});
+
+test('the launch fingerprint is the same for every terminal and changes with what the CLI reads at start', async () => {
+  let first: string | null = null;
+  await withServer(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    first = terminalLaunchFingerprint();
+    assert.match(first ?? '', /^[0-9a-f]{12}$/);
+    // Per-terminal tokens are not part of it.
+    prepareTerminalLaunch('root', 1);
+    prepareTerminalLaunch('root', 1);
+    assert.equal(terminalLaunchFingerprint(), first);
+  });
+  // Off: no tools, nothing to compare.
+  assert.equal(terminalLaunchFingerprint(), null);
+  // Another address in the config files (here: another port) is another contract.
+  await withServer(async () => {
+    assert.notEqual(terminalLaunchFingerprint(), first);
+  });
 });

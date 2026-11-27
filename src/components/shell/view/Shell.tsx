@@ -100,6 +100,8 @@ export default function Shell({
     isInitialized,
     isConnecting,
     pendingDerivedReports,
+    terminalOutdatedReasons,
+    restartTerminal,
     authUrl,
     authUrlVersion,
     connectToShell,
@@ -431,6 +433,30 @@ export default function Shell({
         restartTitle={t('shell.actions.restartTitle')}
         disableRestart={isRestarting || isConnected}
       />
+
+      {terminalOutdatedReasons.length > 0 && isConnected && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-b border-sky-700/60 bg-sky-900/40 px-3 py-1.5 text-xs text-sky-100"
+        >
+          <span className="min-w-0 flex-1">
+            {terminalOutdatedReasons.includes('no-tools')
+              ? t('shell.terminalOutdated.noTools', { defaultValue: 'This terminal was started before derived-session tools existed. Restart it to get them.' })
+              : terminalOutdatedReasons.includes('contract')
+                ? t('shell.terminalOutdated.contract', { defaultValue: 'This terminal was started with an older version of the app. Restart it to load the changes.' })
+                : t('shell.terminalOutdated.cli', { defaultValue: 'A newer Claude Code is installed. Restart the terminal to use it.' })}
+            {' '}
+            {t('shell.terminalOutdated.note', { defaultValue: 'The conversation is resumed; a turn in progress is interrupted.' })}
+          </span>
+          <button
+            type="button"
+            onClick={restartTerminal}
+            className="rounded bg-sky-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-sky-700"
+          >
+            {t('shell.terminalOutdated.restart', { defaultValue: 'Restart terminal' })}
+          </button>
+        </div>
+      )}
 
       {pendingDerivedReports > 0 && isConnected && (
         <div

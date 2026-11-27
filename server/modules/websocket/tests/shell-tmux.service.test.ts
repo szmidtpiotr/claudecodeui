@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isMouseReport, isTerminalOutdated, selectIdleSessions, tmuxSessionName } from '@/modules/websocket/services/shell-tmux.service.js';
+import {
+  isMouseReport,
+  isTerminalOutdated,
+  selectIdleSessions,
+  terminalOutdatedReasons,
+  tmuxSessionName,
+} from '@/modules/websocket/services/shell-tmux.service.js';
 
 const HOUR = 3600;
 const NOW = 1_000_000;
@@ -53,4 +59,26 @@ test('tells scrolling reports from typed keys', () => {
   assert.equal(isMouseReport('\x1b[<64;10;5M'), true);
   assert.equal(isMouseReport('\x1b[B'), false);
   assert.equal(isMouseReport('a'), false);
+});
+
+test('a terminal started with the current launch contract and Claude Code is up to date', () => {
+  const env = { CCUI_DERIVED_TOOLS: '1', CCUI_TERMINAL_CONTRACT: 'abc', CCUI_TERMINAL_CLI: '2.1.332' };
+  assert.deepEqual(terminalOutdatedReasons(env, { contract: 'abc', cli: '2.1.332' }), []);
+});
+
+test('a terminal started before a rebuild that changed what the CLI reads at start is outdated', () => {
+  const env = { CCUI_DERIVED_TOOLS: '1', CCUI_TERMINAL_CONTRACT: 'old', CCUI_TERMINAL_CLI: '2.1.332' };
+  assert.deepEqual(terminalOutdatedReasons(env, { contract: 'new', cli: '2.1.332' }), ['contract']);
+  // Started by a version that recorded no fingerprint at all.
+  assert.deepEqual(terminalOutdatedReasons({ CCUI_DERIVED_TOOLS: '1' }, { contract: 'new', cli: '2.1.332' }), ['contract']);
+});
+
+test('a terminal without the tools, or on an older Claude Code, is outdated', () => {
+  assert.deepEqual(terminalOutdatedReasons({}, { contract: 'abc', cli: '2.1.332' }), ['no-tools']);
+  const env = { CCUI_DERIVED_TOOLS: '1', CCUI_TERMINAL_CONTRACT: 'abc', CCUI_TERMINAL_CLI: '2.1.320' };
+  assert.deepEqual(terminalOutdatedReasons(env, { contract: 'abc', cli: '2.1.332' }), ['cli']);
+});
+
+test('nothing to catch up with when the tools are not served', () => {
+  assert.deepEqual(terminalOutdatedReasons({}, { contract: null, cli: '2.1.332' }), []);
 });

@@ -25,4 +25,5 @@ export {
   prepareTerminalLaunch,
   resolveDerivedSessionsHttpPort,
   startDerivedSessionsHttpServer,
+  terminalLaunchFingerprint,
 } from './services/derived-sessions-http.service.js';
