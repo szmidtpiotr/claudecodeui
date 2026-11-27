@@ -13,7 +13,13 @@
  * - POST /hooks/post-tool-use         hands waiting reports into the running turn
  *                                     (like steering in the chat);
  * - POST /hooks/stop                  the turn ends with reports waiting: the
- *                                     parent goes on with them (relay-limited).
+ *                                     parent goes on with them (relay-limited);
+ * - POST /open-url                    a link the CLI was asked to open (a click
+ *                                     on a link, /login...): the CLI runs the
+ *                                     BROWSER script written here, which posts
+ *                                     the address, and it opens in the browser
+ *                                     tab showing the terminal. Without this
+ *                                     the CLI would try a browser on this host.
  *
  * Every request carries the conversation id (X-Ccui-Session) and a token bound
  * to it (Authorization: Bearer). Tokens are HMACs of a secret kept in a 0600
@@ -64,6 +70,13 @@ type TerminalState = {
 
 const terminals = new Map<string, TerminalState>();
 let secret: Buffer | null = null;
+/** Hands a link to the browser tabs showing the conversation's terminal; returns how many got it. */
+let linkOpener: ((sessionId: string, url: string) => number) | null = null;
+const MAX_LINK_LENGTH = 8192;
+
+export function configureTerminalLinkOpener(opener: ((sessionId: string, url: string) => number) | null): void {
+  linkOpener = opener;
+}
 let listening: { port: number; server: http.Server } | null = null;
 
 // ---------------------------------------------------------------------------
@@ -173,6 +186,7 @@ export function startTerminalTurn(sessionId: string): void {
 export function resetDerivedSessionsHttpForTests(): void {
   terminals.clear();
   secret = null;
+  linkOpener = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +258,7 @@ function configRoot(): string {
     || path.join(os.homedir(), '.config', 'claudecodeui', 'shell-mcp', String(port));
 }
 
-export type TerminalLaunchConfig = { mcpConfigPath: string; settingsPath: string };
+export type TerminalLaunchConfig = { mcpConfigPath: string; settingsPath: string; browserPath: string };
 
 /**
  * Writes the --mcp-config and --settings files for a terminal that starts the
@@ -262,17 +276,22 @@ export function prepareTerminalLaunch(sessionId: string, userId: string | number
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
 
-  const { mcpConfig, settings } = buildLaunchFiles(listening.port, headers);
+  const headersPath = path.join(dir, 'link-headers');
+  const { mcpConfig, settings, browserScript } = buildLaunchFiles(listening.port, headers, headersPath);
 
   const mcpConfigPath = path.join(dir, 'mcp.json');
   const settingsPath = path.join(dir, 'settings.json');
+  const browserPath = path.join(dir, 'open-link');
   writePrivate(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
   writePrivate(settingsPath, JSON.stringify(settings, null, 2));
-  return { mcpConfigPath, settingsPath };
+  // curl reads the headers from this file, so the token is not on its command line.
+  writePrivate(headersPath, Object.entries(headers).map(([name, value]) => `${name}: ${value}\n`).join(''));
+  writePrivate(browserPath, browserScript, 0o700);
+  return { mcpConfigPath, settingsPath, browserPath };
 }
 
 /** The --mcp-config and --settings contents for a terminal's CLI. */
-function buildLaunchFiles(port: number, headers: Record<string, string>) {
+function buildLaunchFiles(port: number, headers: Record<string, string>, headersPath: string) {
   const base = `http://127.0.0.1:${port}`;
   const mcpConfig = {
     mcpServers: {
@@ -288,7 +307,16 @@ function buildLaunchFiles(port: number, headers: Record<string, string>) {
       Stop: hook('stop'),
     },
   };
-  return { mcpConfig, settings };
+  // The CLI runs `$BROWSER <url>` and reports failure on a non-zero exit
+  // ("Couldn't open your browser"), which curl -f gives when no tab got it.
+  const browserScript = [
+    '#!/bin/sh',
+    '# Opens a link from the Claude CLI in the claudecodeui browser tab showing this terminal.',
+    '[ -n "$1" ] || exit 2',
+    `exec curl -sf -m 5 -o /dev/null -H @'${headersPath}' --data-urlencode "url=$1" '${base}/open-url'`,
+    '',
+  ].join('\n');
+  return { mcpConfig, settings, browserScript };
 }
 
 /**
@@ -315,21 +343,33 @@ export function terminalLaunchFingerprint(): string | null {
     input: z.toJSONSchema(z.object(definition.inputSchema)),
     annotations: definition.annotations ?? null,
   }));
-  const payload = JSON.stringify({ files: buildLaunchFiles(listening.port, placeholder), tools });
+  const payload = JSON.stringify({ files: buildLaunchFiles(listening.port, placeholder, '<dir>/link-headers'), tools });
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 12);
 }
 
-function writePrivate(file: string, content: string): void {
+function writePrivate(file: string, content: string, mode = 0o600): void {
   const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, content, { mode: 0o600 });
-  fs.chmodSync(temp, 0o600);
+  fs.writeFileSync(temp, content, { mode });
+  fs.chmodSync(temp, mode);
   fs.renameSync(temp, file);
 }
 
 // ---------------------------------------------------------------------------
 // HTTP server
 
-function readBody(req: http.IncomingMessage): Promise<unknown> {
+async function readBody(req: http.IncomingMessage): Promise<unknown> {
+  const raw = await readRawBody(req);
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error('invalid JSON');
+  }
+}
+
+function readRawBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -342,18 +382,7 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
       }
       chunks.push(chunk);
     });
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) {
-        resolve(undefined);
-        return;
-      }
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        reject(new Error('invalid JSON'));
-      }
-    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
@@ -396,8 +425,39 @@ function refusingHandlers(handlers: DerivedSessionHandlers): DerivedSessionHandl
 
 const HOOK_ROUTES = new Set(['user-prompt-submit', 'post-tool-use', 'stop']);
 
+/** A web address the browser may open: http(s) only, nothing like javascript: or file:. */
+export function openableLink(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_LINK_LENGTH) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleOpenLink(sessionId: string, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const link = openableLink(new URLSearchParams(await readRawBody(req)).get('url'));
+  if (!link) {
+    sendJson(res, 400, { error: 'only http and https links open' });
+    return;
+  }
+  const delivered = linkOpener?.(sessionId, link) ?? 0;
+  if (delivered === 0) {
+    sendJson(res, 409, { error: 'no browser tab shows this terminal' });
+    return;
+  }
+  sendJson(res, 200, { delivered });
+}
+
 export async function handleDerivedSessionsHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  // One connection per request. A kept-alive connection is closed by this
+  // server after 5 idle seconds; a CLI that reused it just then (the Stop hook
+  // at the end of a longer turn) got ECONNRESET and the hook failed.
+  res.setHeader('Connection', 'close');
   const auth = verifyRequestAuth(req.headers);
   if (!auth.ok) {
     sendJson(res, auth.status, { error: auth.reason });
@@ -411,6 +471,10 @@ export async function handleDerivedSessionsHttpRequest(req: http.IncomingMessage
         return;
       }
       await handleMcp(auth.sessionId, req, res, await readBody(req));
+      return;
+    }
+    if (url.pathname === '/open-url' && req.method === 'POST') {
+      await handleOpenLink(auth.sessionId, req, res);
       return;
     }
     const hookMatch = /^\/hooks\/([a-z-]+)$/.exec(url.pathname);

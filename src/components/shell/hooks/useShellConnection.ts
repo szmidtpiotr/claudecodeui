@@ -6,6 +6,7 @@ import type { Terminal } from '@xterm/xterm';
 import type { Project, ProjectSession } from '../../../types/app';
 import { TERMINAL_INIT_DELAY_MS } from '../constants/constants';
 import { readChatRunOptions } from '../utils/chatRunOptions';
+import { claimLink, openableLink, openInNewTab } from '../utils/openLink';
 import { getShellWebSocketUrl, parseShellMessage, sendSocketMessage } from '../utils/socket';
 
 const ANSI_ESCAPE_REGEX =
@@ -37,6 +38,9 @@ type UseShellConnectionResult = {
   terminalOutdatedReasons: string[];
   /** Restarts the terminal's CLI on the same conversation. */
   restartTerminal: () => void;
+  /** A link the terminal's CLI opened that the browser did not let this page open by itself. */
+  blockedLink: string;
+  dismissBlockedLink: () => void;
   isConnecting: boolean;
   closeSocket: () => void;
   connectToShell: () => void;
@@ -63,6 +67,7 @@ export function useShellConnection({
   const [isConnecting, setIsConnecting] = useState(false);
   const [pendingDerivedReports, setPendingDerivedReports] = useState(0);
   const [terminalOutdatedReasons, setTerminalOutdatedReasons] = useState<string[]>([]);
+  const [blockedLink, setBlockedLink] = useState('');
   const connectingRef = useRef(false);
   const suppressAutoConnectRef = useRef(false);
 
@@ -116,6 +121,17 @@ export function useShellConnection({
         return;
       }
 
+      if (message.type === 'open-link') {
+        // The CLI opened a link (a click on it, usually): it opens here, in
+        // the user's browser, not on the server. Opening a tab needs a recent
+        // click on this page; without one the link is offered in a bar.
+        const url = openableLink(message.url);
+        if (url && claimLink(url) && !openInNewTab(url)) {
+          setBlockedLink(url);
+        }
+        return;
+      }
+
       if (message.type === 'derived-reports') {
         const pending = typeof message.pending === 'number' ? message.pending : 0;
         setPendingDerivedReports(Math.max(0, pending));
@@ -154,6 +170,7 @@ export function useShellConnection({
         socket.onopen = () => {
           setPendingDerivedReports(0);
           setTerminalOutdatedReasons([]);
+          setBlockedLink('');
           setIsConnected(true);
           setIsConnecting(false);
           connectingRef.current = false;
@@ -273,6 +290,8 @@ export function useShellConnection({
     pendingDerivedReports,
     terminalOutdatedReasons,
     restartTerminal,
+    blockedLink,
+    dismissBlockedLink: () => setBlockedLink(''),
     isConnecting,
     closeSocket,
     connectToShell,

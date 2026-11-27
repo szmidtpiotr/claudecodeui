@@ -54,6 +54,7 @@ export type ShellIncomingMessage =
   | { type: 'url_open'; url?: string }
   | { type: 'derived-reports'; sessionId?: string; pending?: number }
   | { type: 'terminal-outdated'; reasons?: unknown[] }
+  | { type: 'open-link'; url?: string }
   | { type: string; [key: string]: unknown };
 
 export type UseShellRuntimeOptions = {
@@ -95,6 +96,8 @@ export type UseShellRuntimeResult = {
   pendingDerivedReports: number;
   terminalOutdatedReasons: string[];
   restartTerminal: () => void;
+  blockedLink: string;
+  dismissBlockedLink: () => void;
   authUrl: string;
   authUrlVersion: number;
   connectToShell: () => void;

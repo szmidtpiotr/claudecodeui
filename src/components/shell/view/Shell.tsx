@@ -102,6 +102,8 @@ export default function Shell({
     pendingDerivedReports,
     terminalOutdatedReasons,
     restartTerminal,
+    blockedLink,
+    dismissBlockedLink,
     authUrl,
     authUrlVersion,
     connectToShell,
@@ -454,6 +456,31 @@ export default function Shell({
             className="rounded bg-sky-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-sky-700"
           >
             {t('shell.terminalOutdated.restart', { defaultValue: 'Restart terminal' })}
+          </button>
+        </div>
+      )}
+
+      {blockedLink && isConnected && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-b border-sky-700/60 bg-sky-900/40 px-3 py-1.5 text-xs text-sky-100"
+        >
+          <span className="shrink-0">{t('shell.openLink.blocked', { defaultValue: 'The browser blocked opening a link from the terminal:' })}</span>
+          <a
+            href={blockedLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={dismissBlockedLink}
+            className="min-w-0 flex-1 truncate font-medium text-white underline"
+          >
+            {blockedLink}
+          </a>
+          <button
+            type="button"
+            onClick={dismissBlockedLink}
+            className="rounded px-2 py-0.5 text-sky-200 transition-colors hover:bg-sky-800"
+          >
+            {t('shell.openLink.dismiss', { defaultValue: 'Dismiss' })}
           </button>
         </div>
       )}

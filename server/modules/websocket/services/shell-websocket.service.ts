@@ -71,7 +71,7 @@ type ShellWebSocketDependencies = {
   prepareClaudeTerminal?: (
     sessionId: string,
     userId: string | number | null
-  ) => { mcpConfigPath: string; settingsPath: string } | null;
+  ) => { mcpConfigPath: string; settingsPath: string; browserPath?: string } | null;
   /** Reports from derived sessions waiting for a conversation. */
   getPendingReportCount?: (sessionId: string) => number;
   /** Fingerprint of what a terminal's CLI reads only at start (null: tools not served). */
@@ -221,6 +221,22 @@ function launchEnvironment(dependencies: ShellWebSocketDependencies): Record<str
   return env;
 }
 
+/**
+ * Opens a link the conversation's CLI asked for (its BROWSER script) in every
+ * Shell tab showing that terminal. Returns how many tabs got it; with none the
+ * script fails and the CLI prints the link for the user to open.
+ */
+export function openLinkInShellTabs(sessionId: string, url: string): number {
+  let delivered = 0;
+  for (const socket of conversationSockets.get(sessionId) ?? []) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'open-link', url }));
+      delivered += 1;
+    }
+  }
+  return delivered;
+}
+
 /** Tells every Shell tab showing the conversation how many reports wait for it. */
 export function notifyShellPendingReports(sessionId: string, count: number): void {
   for (const socket of conversationSockets.get(sessionId) ?? []) {
@@ -228,24 +244,37 @@ export function notifyShellPendingReports(sessionId: string, count: number): voi
   }
 }
 
+type DerivedToolsLaunch = { flags: string; env: Record<string, string> };
+
 /**
  * `claude` flags that hand the CLI the derived-sessions tools and hooks for
- * `sessionId` (file paths only; the token stays inside the 0600 files).
+ * `sessionId` (file paths only; the token stays inside the 0600 files), and
+ * the environment that sends the links it opens to the browser tab.
  */
-function derivedToolsFlags(
+function derivedToolsLaunch(
   dependencies: ShellWebSocketDependencies,
   sessionId: string | null,
   userId: string | number | null
-): string {
+): DerivedToolsLaunch {
+  const none = { flags: '', env: {} };
   if (!sessionId || os.platform() === 'win32' || !dependencies.prepareClaudeTerminal) {
-    return '';
+    return none;
   }
   try {
     const launch = dependencies.prepareClaudeTerminal(sessionId, userId);
-    return launch ? ` --mcp-config "${launch.mcpConfigPath}" --settings "${launch.settingsPath}"` : '';
+    if (!launch) {
+      return none;
+    }
+    return {
+      flags: ` --mcp-config "${launch.mcpConfigPath}" --settings "${launch.settingsPath}"`,
+      env: {
+        ...launchEnvironment(dependencies),
+        ...(launch.browserPath ? { BROWSER: launch.browserPath } : {}),
+      },
+    };
   } catch (error) {
     console.error('[ERROR] Shell: derived-sessions config not written:', error instanceof Error ? error.message : String(error));
-    return '';
+    return none;
   }
 }
 
@@ -511,14 +540,15 @@ export function handleShellConnection(
 
         // The tools need the conversation id up front: a resume or a new
         // conversation under an id chosen here (tmux).
-        const claudeFlags = claudeConversationId ? derivedToolsFlags(dependencies, claudeConversationId, userId) : '';
+        const derivedLaunch = claudeConversationId
+          ? derivedToolsLaunch(dependencies, claudeConversationId, userId)
+          : { flags: '', env: {} };
+        const claudeFlags = derivedLaunch.flags;
         const shellCommand = buildShellCommand(data, dependencies, newClaudeSessionId, claudeFlags);
         const sessionEnv: Record<string, string> = { COLORTERM: 'truecolor', FORCE_COLOR: '3' };
-        if (claudeFlags) {
-          // Marks the tmux session as one whose CLI has the hooks, and what
-          // it was started with.
-          Object.assign(sessionEnv, launchEnvironment(dependencies));
-        }
+        // Marks the tmux session as one whose CLI has the hooks, and what it
+        // was started with; BROWSER sends the links it opens to this tab.
+        Object.assign(sessionEnv, derivedLaunch.env);
         let shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         let shellArgs =
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
@@ -744,14 +774,13 @@ export function handleShellConnection(
         // Resume the conversation when it has a history; a terminal that has
         // not run a turn yet starts it again under the same id.
         const hasHistory = Boolean(sessionsDb.getSessionById(conversationId));
-        const flags = derivedToolsFlags(dependencies, conversationId, userId);
+        const { flags, env } = derivedToolsLaunch(dependencies, conversationId, userId);
         const command = wrapTmuxCommand(buildShellCommand(
           { provider: 'claude', hasSession: hasHistory, sessionId: conversationId },
           dependencies,
           hasHistory ? null : conversationId,
           flags
         ));
-        const env = flags ? launchEnvironment(dependencies) : {};
         if (respawnTerminal(name, cwd, command, env)) {
           console.log(`[INFO] Shell tmux: restarted the CLI of ${name} on request`);
           for (const socket of conversationSockets.get(conversationId) ?? [ws]) {

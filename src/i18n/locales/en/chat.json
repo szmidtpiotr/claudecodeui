@@ -278,6 +278,10 @@
       "note": "The conversation is resumed; a turn in progress is interrupted.",
       "restart": "Restart terminal"
     },
+    "openLink": {
+      "blocked": "The browser blocked opening a link from the terminal:",
+      "dismiss": "Dismiss"
+    },
     "derivedReportsWaiting_one": "A message from a derived session is waiting - it is delivered with your next message here or in Chat.",
     "derivedReportsWaiting_other": "{{count}} messages from derived sessions are waiting - they are delivered with your next message here or in Chat.",
     "defaultCommand": "command",

@@ -22,6 +22,7 @@ export {
   releaseShellReports,
 } from './services/derived-sessions.service.js';
 export {
+  configureTerminalLinkOpener,
   prepareTerminalLaunch,
   resolveDerivedSessionsHttpPort,
   startDerivedSessionsHttpServer,

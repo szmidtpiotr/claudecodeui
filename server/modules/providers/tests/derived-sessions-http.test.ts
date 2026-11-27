@@ -10,8 +10,12 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { UNKNOWN_RUN_OPTIONS_MESSAGE } from '@/modules/providers/list/claude/claude-derived-sessions-mcp.js';
 import { sanitizeChatRunOptions } from '@/modules/websocket/services/shell-websocket.service.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import {
   answerHook,
+  configureTerminalLinkOpener,
   issueSessionToken,
   prepareTerminalLaunch,
   resetDerivedSessionsHttpForTests,
@@ -164,6 +168,8 @@ test('requests without a valid token for the session are refused', async () => {
     // The right token for the session passes.
     const ok = await rawPost(base, '/mcp', authFor('root'), INIT);
     assert.equal(ok.status, 200);
+    // No kept-alive connection a CLI could reuse just as it is closed.
+    assert.equal(ok.headers.get('connection'), 'close');
   });
 });
 
@@ -369,9 +375,10 @@ test('terminal launch files are private and the token stays out of the command l
     sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
     const launch = prepareTerminalLaunch('root', 3);
     assert.ok(launch);
-    for (const file of [launch.mcpConfigPath, launch.settingsPath]) {
+    for (const file of [launch.mcpConfigPath, launch.settingsPath, path.join(path.dirname(launch.mcpConfigPath), 'link-headers')]) {
       assert.equal((await stat(file)).mode & 0o777, 0o600);
     }
+    assert.equal((await stat(launch.browserPath)).mode & 0o777, 0o700);
     assert.equal((await stat(path.dirname(launch.mcpConfigPath))).mode & 0o777, 0o700);
 
     const mcp = JSON.parse(await readFile(launch.mcpConfigPath, 'utf8'));
@@ -379,6 +386,9 @@ test('terminal launch files are private and the token stays out of the command l
     assert.equal(server.url, `http://127.0.0.1:${port}/mcp`);
     const token = server.headers.Authorization.replace('Bearer ', '');
     assert.ok(!launch.mcpConfigPath.includes(token) && !launch.settingsPath.includes(token));
+
+    // The BROWSER script reads the token from its private file, never holds it.
+    assert.ok(!(await readFile(launch.browserPath, 'utf8')).includes(token));
 
     const settings = JSON.parse(await readFile(launch.settingsPath, 'utf8'));
     assert.deepEqual(Object.keys(settings.hooks).sort(), ['PostToolUse', 'Stop', 'UserPromptSubmit']);
@@ -486,5 +496,63 @@ test('the launch fingerprint is the same for every terminal and changes with wha
   // Another address in the config files (here: another port) is another contract.
   await withServer(async () => {
     assert.notEqual(terminalLaunchFingerprint(), first);
+  });
+});
+
+const formPost = (base: string, headers: Record<string, string>, url: string) =>
+  fetch(`${base}/open-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers },
+    body: new URLSearchParams({ url }).toString(),
+  });
+
+test('a link the terminal CLI opens goes to the browser tab of that conversation only', async () => {
+  await withServer(async ({ base }) => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    sessionsDb.createSession('other', 'claude', PROJECT, 'Other');
+    const opened: Array<[string, string]> = [];
+    let tabs = 1;
+    configureTerminalLinkOpener((sessionId, url) => {
+      opened.push([sessionId, url]);
+      return tabs;
+    });
+
+    // Same guard as the tools: no token, another conversation's token.
+    assert.equal((await formPost(base, { 'X-Ccui-Session': 'root' }, 'https://example.com/')).status, 401);
+    assert.equal((await formPost(base, authFor('root', issueSessionToken('other')), 'https://example.com/')).status, 403);
+    // Only web links.
+    assert.equal((await formPost(base, authFor('root'), 'javascript:alert(1)')).status, 400);
+    assert.equal((await formPost(base, authFor('root'), 'file:///etc/passwd')).status, 400);
+    assert.deepEqual(opened, []);
+
+    const ok = await formPost(base, authFor('root'), 'https://github.com/a/b/issues/10');
+    assert.equal(ok.status, 200);
+    assert.deepEqual(opened, [['root', 'https://github.com/a/b/issues/10']]);
+
+    // No tab shows the terminal: a failure, so the CLI prints the link instead.
+    tabs = 0;
+    assert.equal((await formPost(base, authFor('root'), 'https://example.com/')).status, 409);
+  });
+});
+
+test('the BROWSER script the CLI runs delivers the link and fails when nobody gets it', async () => {
+  await withServer(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    const launch = prepareTerminalLaunch('root', 1);
+    assert.ok(launch);
+    const opened: string[] = [];
+    let tabs = 1;
+    configureTerminalLinkOpener((_sessionId, url) => {
+      opened.push(url);
+      return tabs;
+    });
+    const run = promisify(execFile);
+    const link = 'https://example.com/a b?x=1&y=ą';
+    await run(launch.browserPath, [link]);
+    assert.deepEqual(opened, [new URL(link).href]);
+
+    tabs = 0;
+    await assert.rejects(run(launch.browserPath, ['https://example.com/']));
+    await assert.rejects(run(launch.browserPath, []));
   });
 });

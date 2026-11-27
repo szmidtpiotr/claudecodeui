@@ -117,6 +117,8 @@ export function useShellRuntime({
     pendingDerivedReports,
     terminalOutdatedReasons,
     restartTerminal,
+    blockedLink,
+    dismissBlockedLink,
     connectToShell,
     disconnectFromShell,
   } = useShellConnection({
@@ -173,6 +175,8 @@ export function useShellRuntime({
     pendingDerivedReports,
     terminalOutdatedReasons,
     restartTerminal,
+    blockedLink,
+    dismissBlockedLink,
     authUrl,
     authUrlVersion,
     connectToShell,

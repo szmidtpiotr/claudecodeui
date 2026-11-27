@@ -17,6 +17,7 @@ import {
     closeSessionsWatcher,
     initializeSessionsWatcher,
     configureShellPresence,
+    configureTerminalLinkOpener,
     getPendingShellReportCount,
     prepareTerminalLaunch,
     rememberSessionRunOptions,
@@ -28,6 +29,7 @@ import {
     createWebSocketServer,
     isConversationOpenInShell,
     notifyShellPendingReports,
+    openLinkInShellTabs,
 } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -178,6 +180,9 @@ configureShellPresence({
     isOpen: isConversationOpenInShell,
     onPendingChanged: notifyShellPendingReports,
 });
+// Links a terminal's CLI opens go to the browser tab showing the terminal,
+// not to a browser on this host.
+configureTerminalLinkOpener(openLinkInShellTabs);
 
 // Make WebSocket server available to routes
 app.locals.wss = wss;

@@ -22,6 +22,24 @@ import { attachImeDirectInput } from '../utils/imeDirectInput';
 import { imageFilesFrom } from '../utils/clipboardImage';
 import { hasSoftKeyboard } from '../../../utils/device';
 import { isShiftEnter, NEWLINE_SEQUENCE } from '../utils/newlineKey';
+import { claimLink, createLinkClickTracker, openableLink, openInNewTab } from '../utils/openLink';
+
+/**
+ * A link clicked in the terminal. Links a program marked up (OSC 8, as the
+ * Claude CLI prints them) can show other text than where they lead, so those
+ * ask first, as xterm.js does by default. A link the CLI forwarded for the
+ * same click opens only once (see utils/openLink.ts).
+ */
+function activateTerminalLink(text: string, askFirst: boolean): void {
+  const url = openableLink(text);
+  if (!url || !claimLink(url)) {
+    return;
+  }
+  if (askFirst && !window.confirm(`Do you want to navigate to ${url}?\n\nWARNING: This link could potentially be dangerous`)) {
+    return;
+  }
+  openInNewTab(url);
+}
 
 // CLIs running inside the pty (e.g. `claude auth login`'s "press c to copy"
 // device-flow prompt) write to the clipboard via an OSC 52 escape sequence,
@@ -132,7 +150,15 @@ export function useShellTerminal({
       return;
     }
 
-    const nextTerminal = new Terminal(TERMINAL_OPTIONS);
+    const linkClicks = createLinkClickTracker(activateTerminalLink);
+    const nextTerminal = new Terminal({
+      ...TERMINAL_OPTIONS,
+      linkHandler: {
+        activate: (_event, text) => activateTerminalLink(text, true),
+        hover: (_event, text) => linkClicks.hover(text, true),
+        leave: (_event, text) => linkClicks.leave(text),
+      },
+    });
     terminalRef.current = nextTerminal;
 
     const nextFitAddon = new FitAddon();
@@ -142,7 +168,10 @@ export function useShellTerminal({
 
     // Avoid wrapped partial links in compact login flows.
     if (!minimal) {
-      nextTerminal.loadAddon(new WebLinksAddon());
+      nextTerminal.loadAddon(new WebLinksAddon((_event, uri) => activateTerminalLink(uri, false), {
+        hover: (_event, uri) => linkClicks.hover(uri, false),
+        leave: (_event, uri) => linkClicks.leave(uri),
+      }));
     }
 
     try {
@@ -217,6 +246,11 @@ export function useShellTerminal({
 
     const terminalContainer = terminalContainerRef.current;
     terminalContainer.addEventListener('paste', handleTerminalPaste, true);
+    // Before xterm.js sees the button (capture): see createLinkClickTracker.
+    const handleLinkPress = (event: MouseEvent) => linkClicks.down(event);
+    const handleLinkRelease = (event: MouseEvent) => linkClicks.up(event);
+    terminalContainer.addEventListener('mousedown', handleLinkPress, true);
+    terminalContainer.addEventListener('mouseup', handleLinkRelease, true);
     terminalContainer.addEventListener('dragover', handleTerminalDragOver);
     terminalContainer.addEventListener('drop', handleTerminalDrop);
 
@@ -351,6 +385,8 @@ export function useShellTerminal({
     return () => {
       terminalContainerRef.current?.removeEventListener('copy', handleTerminalCopy);
       terminalContainer.removeEventListener('paste', handleTerminalPaste, true);
+      terminalContainer.removeEventListener('mousedown', handleLinkPress, true);
+      terminalContainer.removeEventListener('mouseup', handleLinkRelease, true);
       terminalContainer.removeEventListener('dragover', handleTerminalDragOver);
       terminalContainer.removeEventListener('drop', handleTerminalDrop);
       detachTouchScroll();
