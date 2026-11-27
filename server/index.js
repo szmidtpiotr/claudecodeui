@@ -30,6 +30,7 @@ import {
     isConversationOpenInShell,
     notifyShellPendingReports,
     openLinkInShellTabs,
+    wakeIdleClaudeTerminal,
 } from '@/modules/websocket/index.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -179,6 +180,9 @@ const wss = createWebSocketServer(server, {
 configureShellPresence({
     isOpen: isConversationOpenInShell,
     onPendingChanged: notifyShellPendingReports,
+    // An idle terminal is woken for its reports instead of waiting for the
+    // user's next message (only at an empty prompt, never over typing).
+    wake: (sessionId, prompt) => wakeIdleClaudeTerminal(sessionId, prompt),
 });
 // Links a terminal's CLI opens go to the browser tab showing the terminal,
 // not to a browser on this host.

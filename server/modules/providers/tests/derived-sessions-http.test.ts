@@ -34,6 +34,8 @@ import {
   resolveChatRunOptions,
   resetDerivedSessionsStateForTests,
   sendToParentSession,
+  SHELL_WAKE_PROMPT,
+  MAX_RELAY_TURNS_PER_WINDOW,
   waitForDeliveries,
   type HeadlessRunResult,
 } from '@/modules/providers/services/derived-sessions.service.js';
@@ -554,5 +556,80 @@ test('the BROWSER script the CLI runs delivers the link and fails when nobody ge
     tabs = 0;
     await assert.rejects(run(launch.browserPath, ['https://example.com/']));
     await assert.rejects(run(launch.browserPath, []));
+  });
+});
+
+test('an idle terminal is woken once for waiting reports, retried later, and stays within the relay limit', async () => {
+  await withServer(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    sessionsDb.createSession('kid', 'claude', PROJECT, 'Kid', undefined, undefined, null, 'user', 'root');
+    let now = 1_000_000;
+    configureDerivedSessionsRuntime({
+      runHeadless: async () => ({ status: 'completed', sessionId: 'x', resultText: '' }),
+      isSessionActive: () => false,
+      steer: () => ({ ok: false, reason: 'no_active_turn' }),
+      getSessionMessages: async () => [],
+      now: () => now,
+    });
+    let idle = false;
+    const wakes: Array<{ sessionId: string; prompt: string }> = [];
+    configureShellPresence({
+      isOpen: (id) => id === 'root',
+      wake: (sessionId, prompt) => {
+        if (!idle) return false;
+        wakes.push({ sessionId, prompt });
+        return true;
+      },
+    });
+    const report = (text: string) => deliverDerivedReport({ parentSessionId: 'root', childSessionId: 'kid', childTitle: 'Kid', status: 'completed', text });
+
+    // Busy (or the user typing): nothing typed, the report waits.
+    assert.equal((await report('First')).mode, 'queued');
+    assert.equal(wakes.length, 0);
+    // The periodic check finds the terminal idle: woken once.
+    idle = true;
+    checkShellQueuesForTests();
+    assert.deepEqual(wakes, [{ sessionId: 'root', prompt: SHELL_WAKE_PROMPT }]);
+    // A second report before the woken turn took the first: no second prompt.
+    await report('Second');
+    checkShellQueuesForTests();
+    assert.equal(wakes.length, 1);
+
+    // The woken turn's prompt hook takes both, once.
+    const taken: any = answerHook('user-prompt-submit', 'root', { session_id: 'root' });
+    assert.match(taken.hookSpecificOutput.additionalContext, /First[\s\S]*Second/);
+    assert.equal(getPendingShellReportCount('root'), 0);
+
+    // The next report wakes it again at once.
+    now += 1000;
+    await report('Third');
+    assert.equal(wakes.length, 2);
+    answerHook('user-prompt-submit', 'root', { session_id: 'root' });
+
+    // A woken turn that never took its reports: tried again after a minute.
+    now += 1000;
+    await report('Fourth');
+    assert.equal(wakes.length, 3);
+    now += 30_000;
+    checkShellQueuesForTests();
+    assert.equal(wakes.length, 3);
+    now += 31_000;
+    checkShellQueuesForTests();
+    assert.equal(wakes.length, 4);
+    answerHook('user-prompt-submit', 'root', { session_id: 'root' });
+
+    // Wake-ups are report-started turns: the relay limit stops them, and the
+    // reports wait for the user's next message.
+    for (let i = wakes.length; i < MAX_RELAY_TURNS_PER_WINDOW; i++) {
+      now += 1000;
+      await report(`R${i}`);
+      answerHook('user-prompt-submit', 'root', { session_id: 'root' });
+    }
+    assert.equal(wakes.length, MAX_RELAY_TURNS_PER_WINDOW);
+    now += 1000;
+    await report('Over the limit');
+    checkShellQueuesForTests();
+    assert.equal(wakes.length, MAX_RELAY_TURNS_PER_WINDOW);
+    assert.equal(getPendingShellReportCount('root'), 1);
   });
 });

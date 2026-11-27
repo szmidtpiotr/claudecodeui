@@ -101,7 +101,20 @@ export type ShellPresence = {
   isOpen: (sessionId: string) => boolean;
   /** The number of reports waiting for this session changed. */
   onPendingChanged?: (sessionId: string, count: number) => void;
+  /**
+   * Submits `prompt` in the session's terminal if its CLI waits idle at an
+   * empty prompt; false when it is busy or the user may be typing.
+   */
+  wake?: (sessionId: string, prompt: string) => boolean;
 };
+
+/**
+ * Typed into an idle terminal that has reports waiting. The terminal's prompt
+ * hook hands the reports over with it, as with any message the user sends.
+ */
+export const SHELL_WAKE_PROMPT = 'Messages from derived sessions arrived. Continue with them.';
+/** A wake-up whose turn has not taken the reports yet is not repeated before this. */
+const SHELL_WAKE_RETRY_MS = 60 * 1000;
 
 export type QueuedShellReport = {
   messageId: string;
@@ -113,6 +126,8 @@ export type QueuedShellReport = {
 let shellPresence: ShellPresence | null = null;
 /** Reports waiting for a parent that is open in a terminal, oldest first. */
 const shellQueues = new Map<string, QueuedShellReport[]>();
+/** When an idle terminal was last woken for its queue. */
+const shellWokenAt = new Map<string, number>();
 /** How often a queue whose terminal may have closed is checked. */
 const SHELL_QUEUE_CHECK_MS = 10 * 1000;
 let shellQueueTimer: NodeJS.Timeout | null = null;
@@ -134,6 +149,7 @@ export function resetDerivedSessionsStateForTests(): void {
   relayTurnTimes.clear();
   sessionUsers.clear();
   shellQueues.clear();
+  shellWokenAt.clear();
   shellPresence = null;
   if (shellQueueTimer) {
     clearInterval(shellQueueTimer);
@@ -517,6 +533,11 @@ export function sendToDerivedSession(input: {
   return { mode: 'new_turn', messageId };
 }
 
+function hasRelayBudget(parentSessionId: string): boolean {
+  const now = runtime?.now?.() ?? Date.now();
+  return (relayTurnTimes.get(parentSessionId) ?? []).filter((time) => now - time < RELAY_WINDOW_MS).length < MAX_RELAY_TURNS_PER_WINDOW;
+}
+
 function takeRelayBudget(parentSessionId: string): boolean {
   const now = runtime?.now?.() ?? Date.now();
   const recent = (relayTurnTimes.get(parentSessionId) ?? []).filter((time) => now - time < RELAY_WINDOW_MS);
@@ -747,6 +768,30 @@ function enqueueShellReport(parentSessionId: string, report: QueuedShellReport):
   shellQueues.set(parentSessionId, queue);
   notifyPending(parentSessionId);
   ensureShellQueueWatch();
+  wakeShellParent(parentSessionId);
+}
+
+/**
+ * Starts the parent's next turn when its terminal sits idle: a wake-up is a
+ * report-started turn, so it counts against the relay limit, and once the
+ * limit is reached the reports wait for the user's next message.
+ */
+function wakeShellParent(sessionId: string): void {
+  if (!shellPresence?.wake || !shellQueues.get(sessionId)?.length) {
+    return;
+  }
+  const now = runtime?.now?.() ?? Date.now();
+  if (now - (shellWokenAt.get(sessionId) ?? -Infinity) < SHELL_WAKE_RETRY_MS || !hasRelayBudget(sessionId)) {
+    return;
+  }
+  try {
+    if (shellPresence.wake(sessionId, SHELL_WAKE_PROMPT)) {
+      takeRelayBudget(sessionId);
+      shellWokenAt.set(sessionId, now);
+    }
+  } catch (error) {
+    console.error('[derived-sessions] waking the terminal failed', sessionId, error);
+  }
 }
 
 /** Reports waiting for a session that is open in a terminal. */
@@ -771,6 +816,7 @@ export function takeShellReports(sessionId: string, options: { turnStart?: boole
     return [];
   }
   shellQueues.delete(sessionId);
+  shellWokenAt.delete(sessionId);
   notifyPending(sessionId);
   return queue;
 }
@@ -787,6 +833,7 @@ export function releaseShellReports(sessionId: string): void {
     return;
   }
   shellQueues.delete(sessionId);
+  shellWokenAt.delete(sessionId);
   notifyPending(sessionId);
   for (const report of queue) {
     void deliverToParent({ parentSessionId: sessionId, childSessionId: report.childSessionId, content: report.content });
@@ -799,11 +846,7 @@ function ensureShellQueueWatch(): void {
     return;
   }
   shellQueueTimer = setInterval(() => {
-    for (const sessionId of [...shellQueues.keys()]) {
-      if (!isOpenInShell(sessionId)) {
-        releaseShellReports(sessionId);
-      }
-    }
+    checkShellQueues();
     if (shellQueues.size === 0 && shellQueueTimer) {
       clearInterval(shellQueueTimer);
       shellQueueTimer = null;
@@ -814,9 +857,16 @@ function ensureShellQueueWatch(): void {
 
 /** Runs one round of the closed-terminal check now; tests only. */
 export function checkShellQueuesForTests(): void {
+  checkShellQueues();
+}
+
+/** Closed terminal: deliver the chat's way. Open and idle (the user stopped typing): wake it. */
+function checkShellQueues(): void {
   for (const sessionId of [...shellQueues.keys()]) {
     if (!isOpenInShell(sessionId)) {
       releaseShellReports(sessionId);
+    } else {
+      wakeShellParent(sessionId);
     }
   }
 }

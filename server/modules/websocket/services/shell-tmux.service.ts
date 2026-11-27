@@ -201,6 +201,65 @@ export function respawnTerminal(name: string, cwd: string, command: string, env:
   }
 }
 
+const ANSI_SEQUENCE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+const DIM_TEXT = /\x1b\[2m[^\x1b]*/g;
+
+/**
+ * True when a Claude CLI screen (captured with its colours) shows it waiting
+ * at an empty prompt: no turn running (the status line offers "esc to
+ * interrupt" during one), the cursor right after "❯ " on the input line, and
+ * that line alone between the input box's rules (so no multi-line draft, no
+ * dialog in its place). Dimmed text in the box is a hint or a suggested next
+ * prompt the CLI shows in an empty box; anything typed is not dimmed.
+ */
+export function isIdleEmptyPrompt(screen: string, cursorX: number, cursorY: number): boolean {
+  const styled = screen.split('\n');
+  const plain = styled.map((line) => line.replace(ANSI_SEQUENCE, ''));
+  if (plain.some((line) => line.includes('esc to interrupt'))) {
+    return false;
+  }
+  const line = plain[cursorY] ?? '';
+  const isRule = (text: string | undefined) => /^─{3,}/.test(text ?? '');
+  if (cursorX !== 2 || !line.startsWith('❯') || !isRule(plain[cursorY - 1]) || !isRule(plain[cursorY + 1])) {
+    return false;
+  }
+  const typed = (styled[cursorY] ?? '').replace(DIM_TEXT, '').replace(ANSI_SEQUENCE, '');
+  return typed.replace(/^\s*❯/, '').trim() === '';
+}
+
+/** The visible screen of a terminal (with colours) and where its cursor is; null when unreadable or scrolled back (copy mode). */
+export function readTerminalScreen(name: string): { screen: string; cursorX: number; cursorY: number } | null {
+  try {
+    const [inMode, cursorX, cursorY] = execFileSync(
+      'tmux',
+      ['-L', TMUX_SOCKET, 'display-message', '-p', '-t', `=${name}:`, '#{pane_in_mode} #{cursor_x} #{cursor_y}'],
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }
+    ).toString().trim().split(' ').map(Number);
+    if (inMode !== 0 || !Number.isInteger(cursorX) || !Number.isInteger(cursorY)) {
+      return null;
+    }
+    const screen = execFileSync('tmux', ['-L', TMUX_SOCKET, 'capture-pane', '-p', '-e', '-t', `=${name}:`], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    }).toString();
+    return { screen, cursorX, cursorY };
+  } catch {
+    return null;
+  }
+}
+
+/** Types `text` into the terminal and presses Enter. */
+export function submitToTerminal(name: string, text: string): boolean {
+  try {
+    execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, '-l', text], { stdio: 'ignore', timeout: 2000 });
+    execFileSync('tmux', ['-L', TMUX_SOCKET, 'send-keys', '-t', `=${name}:`, 'Enter'], { stdio: 'ignore', timeout: 2000 });
+    return true;
+  } catch (error) {
+    console.error('[ERROR] Shell tmux: typing into the terminal failed:', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
 export function hasTmuxSession(name: string): boolean {
   try {
     execFileSync('tmux', ['-L', TMUX_SOCKET, 'has-session', '-t', `=${name}`], { stdio: 'ignore' });

@@ -13,7 +13,11 @@ import {
   DERIVED_TOOLS_ENV,
   hasDerivedToolsTerminal,
   hasTmuxSession,
+  isIdleEmptyPrompt,
+  isMouseReport,
+  readTerminalScreen,
   readTmuxSessionEnvironment,
+  submitToTerminal,
   respawnTerminal,
   TERMINAL_CLI_ENV,
   TERMINAL_CONTRACT_ENV,
@@ -174,16 +178,45 @@ export function isConversationOpenInShell(sessionId: string): boolean {
       return true;
     }
   }
+  return derivedToolsTerminalsOf(sessionId).length > 0;
+}
+
+/** The tmux terminals running the conversation's CLI with the derived-sessions hooks. */
+function derivedToolsTerminalsOf(sessionId: string): string[] {
   if (!isTmuxEnabled()) {
-    return false;
+    return [];
   }
   const names = new Set(conversationTmuxNames.get(sessionId) ?? []);
   const projectPath = sessionsDb.getSessionById(sessionId)?.project_path;
   if (projectPath) {
     names.add(tmuxSessionName(`${projectPath}_${sessionId}`));
   }
-  for (const name of names) {
-    if (hasDerivedToolsTerminal(name)) {
+  return [...names].filter((name) => hasDerivedToolsTerminal(name));
+}
+
+/** When someone last typed into a tmux terminal from a browser. */
+const lastTypedAt = new Map<string, number>();
+/** Typing this recently means the user may be about to type more: no wake-up. */
+const RECENT_TYPING_MS = 20 * 1000;
+
+/**
+ * Submits `prompt` in the conversation's terminal when its CLI waits idle at
+ * an empty prompt and nobody typed into it in the last moments, so reports
+ * from derived sessions do not wait for the user's next message. A terminal
+ * that is busy, holds a draft, shows a dialog or is scrolled back is left
+ * alone (false); the reports then wait as before.
+ */
+export function wakeIdleClaudeTerminal(sessionId: string, prompt: string, now = Date.now()): boolean {
+  for (const name of derivedToolsTerminalsOf(sessionId)) {
+    if (now - (lastTypedAt.get(name) ?? 0) < RECENT_TYPING_MS) {
+      continue;
+    }
+    const view = readTerminalScreen(name);
+    if (!view || !isIdleEmptyPrompt(view.screen, view.cursorX, view.cursorY)) {
+      continue;
+    }
+    if (submitToTerminal(name, prompt)) {
+      console.log(`[INFO] Shell tmux: woke ${name} for reports from derived sessions`);
       return true;
     }
   }
@@ -750,6 +783,10 @@ export function handleShellConnection(
           const input = readString(data.data);
           if (tmuxName) {
             leaveCopyModeBeforeTyping(tmuxName, input);
+            // Mouse moves and focus changes are not typing.
+            if (!isMouseReport(input) && input !== '\x1b[I' && input !== '\x1b[O') {
+              lastTypedAt.set(tmuxName, Date.now());
+            }
           }
           shellProcess.write(input);
         }

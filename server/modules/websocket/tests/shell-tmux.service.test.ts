@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  isIdleEmptyPrompt,
   isMouseReport,
   isTerminalOutdated,
   selectIdleSessions,
@@ -81,4 +82,33 @@ test('a terminal without the tools, or on an older Claude Code, is outdated', ()
 
 test('nothing to catch up with when the tools are not served', () => {
   assert.deepEqual(terminalOutdatedReasons({}, { contract: null, cli: '2.1.332' }), []);
+});
+
+const RULE = '─'.repeat(40);
+const screen = (prompt: string, status = '  ⏵⏵ auto mode on (shift+tab to cycle)', extra: string[] = []) =>
+  ['● Done.', '', '✻ Churned for 14s · done 12:57 PM', '', RULE, prompt, ...extra, RULE, '  Opus 5.5 · medium', status].join('\n');
+
+test('an idle Claude CLI at an empty prompt can be woken', () => {
+  assert.equal(isIdleEmptyPrompt(screen('❯ '), 2, 5), true);
+  // A rule that carries the session name still is the input box.
+  assert.equal(isIdleEmptyPrompt(screen('❯ ').replace(RULE, `${RULE} Sesja Projektowa ─`), 2, 5), true);
+  // A dimmed hint or suggested next prompt in the empty box (as captured with colours).
+  assert.equal(isIdleEmptyPrompt(screen('\x1b[39m❯\u00a0\x1b[2mTry sending PEACH to Owoc again\x1b[0m'), 2, 5), true);
+  assert.equal(isIdleEmptyPrompt(screen('\x1b[39m❯\u00a0'), 2, 5), true);
+});
+
+test('a busy CLI, a draft, a hint, a dialog or a cursor elsewhere is left alone', () => {
+  // A turn is running.
+  assert.equal(isIdleEmptyPrompt(screen('❯ ', '  ⏵⏵ auto mode on · esc to interrupt'), 2, 5), false);
+  // The user has typed something (cursor after it, or moved back to the start).
+  assert.equal(isIdleEmptyPrompt(screen('❯ half a sentence'), 18, 5), false);
+  assert.equal(isIdleEmptyPrompt(screen('❯ half a sentence'), 2, 5), false);
+  // A multi-line draft: the line under the cursor is not followed by the rule.
+  assert.equal(isIdleEmptyPrompt(screen('❯ ', undefined, ['second line']), 2, 5), false);
+  // Typed text as the CLI draws it (default colour) is a draft.
+  assert.equal(isIdleEmptyPrompt(screen('\x1b[39m❯\u00a0ab'), 2, 5), false);
+  // A permission dialog uses ❯ for its choice, without the input box rules.
+  assert.equal(isIdleEmptyPrompt(['Do you want to proceed?', '❯ 1. Yes', '  2. No'].join('\n'), 2, 1), false);
+  // Cursor not on the prompt.
+  assert.equal(isIdleEmptyPrompt(screen('❯ '), 0, 9), false);
 });
