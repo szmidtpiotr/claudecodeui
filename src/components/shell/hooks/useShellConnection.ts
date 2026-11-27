@@ -164,10 +164,27 @@ export function useShellConnection({
 
         connectingRef.current = true;
 
+        // One socket per terminal. A socket this hook no longer tracks must
+        // not reach the terminal: two open sockets each attach to the tmux
+        // session and both write its output here, so every typed letter
+        // showed twice (or three times) until the tab was remounted.
+        const previous = wsRef.current;
+        if (previous) {
+          wsRef.current = null;
+          if (previous.readyState === WebSocket.OPEN || previous.readyState === WebSocket.CONNECTING) {
+            previous.close();
+          }
+        }
+
         const socket = new WebSocket(wsUrl);
         wsRef.current = socket;
+        const isCurrent = () => wsRef.current === socket;
 
         socket.onopen = () => {
+          if (!isCurrent()) {
+            socket.close();
+            return;
+          }
           setPendingDerivedReports(0);
           setTerminalOutdatedReasons([]);
           setBlockedLink('');
@@ -180,7 +197,7 @@ export function useShellConnection({
             const currentTerminal = terminalRef.current;
             const currentFitAddon = fitAddonRef.current;
             const currentProject = selectedProjectRef.current;
-            if (!currentTerminal || !currentFitAddon || !currentProject) {
+            if (!isCurrent() || !currentTerminal || !currentFitAddon || !currentProject) {
               return;
             }
 
@@ -203,11 +220,18 @@ export function useShellConnection({
         };
 
         socket.onmessage = (event) => {
+          if (!isCurrent()) {
+            return;
+          }
           const rawPayload = typeof event.data === 'string' ? event.data : String(event.data ?? '');
           handleSocketMessage(rawPayload);
         };
 
         socket.onclose = () => {
+          if (!isCurrent()) {
+            return;
+          }
+          wsRef.current = null;
           setIsConnected(false);
           setIsConnecting(false);
           connectingRef.current = false;
@@ -215,6 +239,9 @@ export function useShellConnection({
         };
 
         socket.onerror = () => {
+          if (!isCurrent()) {
+            return;
+          }
           setIsConnected(false);
           setIsConnecting(false);
           connectingRef.current = false;
