@@ -39,7 +39,7 @@ import {
 } from '@/modules/providers/list/claude/claude-derived-sessions-mcp.js';
 import {
   getParentSessionId,
-  getRememberedRunOptions,
+  resolveChatRunOptions,
   takeShellReports,
   type QueuedShellReport,
 } from '@/modules/providers/services/derived-sessions.service.js';
@@ -145,9 +145,11 @@ export function registerTerminalUser(sessionId: string, userId: string | number 
 function contextFor(sessionId: string, state: TerminalState): DerivedSessionsContext {
   return {
     getCurrentSessionId: () => sessionId,
-    // A terminal has no per-run options of its own; a derived session runs
-    // like this conversation last ran in the chat, else with the defaults.
-    parentOptions: getRememberedRunOptions(sessionId) ?? {},
+    // A terminal has no per-run options of its own: a derived session runs
+    // the way this conversation (else this project) runs in the chat, and is
+    // refused when that is unknown.
+    parentOptions: {},
+    getParentOptions: () => resolveChatRunOptions(sessionId)?.options ?? null,
     userId: state.userId,
   };
 }

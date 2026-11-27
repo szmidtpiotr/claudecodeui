@@ -23,7 +23,7 @@ import crypto from 'node:crypto';
 
 import { getSessionMessages as sdkGetSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 
-import { sessionsDb } from '@/modules/database/index.js';
+import { appConfigDb, sessionsDb } from '@/modules/database/index.js';
 import { readLastAssistantText, type TranscriptMessageLike } from '@/modules/providers/list/claude/claude-fork-utils.js';
 import { emitSessionMetadataChanged } from '@/modules/providers/services/session-events.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
@@ -168,23 +168,100 @@ export function pickInheritedRunOptions(options: Record<string, unknown> | null 
   return inherited;
 }
 
+const RUN_OPTIONS_KEY_PREFIX = 'derived-run-options:';
+
+function readStoredRunOptions(key: string): Record<string, unknown> | null {
+  const raw = appConfigDb.get(`${RUN_OPTIONS_KEY_PREFIX}${key}`);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const inherited = pickInheritedRunOptions(parsed as Record<string, unknown>);
+    return Object.keys(inherited).length > 0 ? inherited : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeRunOptions(key: string, options: Record<string, unknown>): void {
+  try {
+    appConfigDb.set(`${RUN_OPTIONS_KEY_PREFIX}${key}`, JSON.stringify(options));
+  } catch (error) {
+    console.error('[derived-sessions] could not store run options', key, errorText(error));
+  }
+}
+
 /**
  * Remembers what a session last ran with, so a turn this module starts later
- * in it (a report reaching an idle parent) runs the same way. The per-session
- * model/permission choice otherwise lives only in the browser.
+ * in it (a report reaching an idle parent, a derived session of a terminal)
+ * runs the same way. The per-session model/permission choice otherwise lives
+ * only in the browser. Kept in memory and in the database (per session and
+ * per project), so it survives a restart; an unattended run (agent API,
+ * commit messages) is not a choice the user made and is not stored.
  */
 export function rememberSessionRunOptions(sessionId: string | null | undefined, options: Record<string, unknown> | null | undefined): void {
   if (!sessionId || !options) {
     return;
   }
   const inherited = pickInheritedRunOptions(options);
-  if (Object.keys(inherited).length > 0) {
-    rememberedRunOptions.set(sessionId, inherited);
+  if (Object.keys(inherited).length === 0) {
+    return;
+  }
+  rememberedRunOptions.set(sessionId, inherited);
+  if (options.unattended) {
+    return;
+  }
+  storeRunOptions(`session:${sessionId}`, inherited);
+  let projectPath = typeof options.cwd === 'string' && options.cwd ? options.cwd : null;
+  if (!projectPath) {
+    try {
+      projectPath = sessionsDb.getSessionById(sessionId)?.project_path ?? null;
+    } catch {
+      projectPath = null;
+    }
+  }
+  if (projectPath) {
+    storeRunOptions(`project:${projectPath}`, inherited);
   }
 }
 
 export function getRememberedRunOptions(sessionId: string): Record<string, unknown> | null {
-  return rememberedRunOptions.get(sessionId) ?? null;
+  return rememberedRunOptions.get(sessionId) ?? readStoredRunOptions(`session:${sessionId}`);
+}
+
+/** True when the options say how tools are approved (a permission mode or tool settings). */
+function decidesPermissions(options: Record<string, unknown> | null): options is Record<string, unknown> {
+  return Boolean(options && (options.permissionMode !== undefined || options.toolsSettings !== undefined));
+}
+
+export type ChatRunOptions = { options: Record<string, unknown>; source: 'session' | 'project' };
+
+/**
+ * The permission mode and tool settings a conversation uses in the chat: its
+ * own last chat run (or what the browser sent when the Shell tab opened it),
+ * else the last chat run in its project. Null when neither is known — a
+ * derived session started without them could not get a single tool approved.
+ */
+export function resolveChatRunOptions(sessionId: string): ChatRunOptions | null {
+  const own = getRememberedRunOptions(sessionId);
+  if (decidesPermissions(own)) {
+    return { options: own, source: 'session' };
+  }
+  let projectPath: string | null = null;
+  try {
+    projectPath = sessionsDb.getSessionById(sessionId)?.project_path ?? null;
+  } catch {
+    projectPath = null;
+  }
+  const project = projectPath ? readStoredRunOptions(`project:${projectPath}`) : null;
+  if (decidesPermissions(project)) {
+    return { options: project, source: 'project' };
+  }
+  return null;
 }
 
 export function isDerivedTurnRunning(sessionId: string): boolean {

@@ -5,6 +5,7 @@ import type { Terminal } from '@xterm/xterm';
 
 import type { Project, ProjectSession } from '../../../types/app';
 import { TERMINAL_INIT_DELAY_MS } from '../constants/constants';
+import { readChatRunOptions } from '../utils/chatRunOptions';
 import { getShellWebSocketUrl, parseShellMessage, sendSocketMessage } from '../utils/socket';
 
 const ANSI_ESCAPE_REGEX =
@@ -154,6 +155,7 @@ export function useShellConnection({
 
             currentFitAddon.fit();
 
+            const sessionId = isPlainShellRef.current ? null : selectedSessionRef.current?.id || null;
             sendSocketMessage(socket, {
               type: 'init',
               projectPath: currentProject.fullPath || currentProject.path || '',
@@ -164,6 +166,7 @@ export function useShellConnection({
               rows: currentTerminal.rows,
               initialCommand: initialCommandRef.current,
               isPlainShell: isPlainShellRef.current,
+              chatRunOptions: isPlainShellRef.current ? undefined : readChatRunOptions(sessionId),
             });
           }, TERMINAL_INIT_DELAY_MS);
         };

@@ -8,6 +8,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { UNKNOWN_RUN_OPTIONS_MESSAGE } from '@/modules/providers/list/claude/claude-derived-sessions-mcp.js';
+import { sanitizeChatRunOptions } from '@/modules/websocket/services/shell-websocket.service.js';
 import {
   answerHook,
   issueSessionToken,
@@ -23,6 +25,8 @@ import {
   deliverDerivedReport,
   getPendingShellReportCount,
   releaseShellReports,
+  rememberSessionRunOptions,
+  resolveChatRunOptions,
   resetDerivedSessionsStateForTests,
   sendToParentSession,
   waitForDeliveries,
@@ -130,6 +134,10 @@ const INIT = {
 
 const parseTool = (result: any) => JSON.parse(result.content[0].text);
 
+/** The conversation ran in the Chat tab with these settings. */
+const ranInChat = (sessionId: string, extra: Record<string, unknown> = {}) =>
+  rememberSessionRunOptions(sessionId, { permissionMode: 'bypassPermissions', toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false }, cwd: PROJECT, ...extra });
+
 test('requests without a valid token for the session are refused', async () => {
   await withServer(async ({ base }) => {
     sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
@@ -181,6 +189,7 @@ test('create, status, list and send work over HTTP and stay within the session t
     sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
     sessionsDb.createSession('stranger', 'claude', PROJECT, 'Unrelated');
     const runtime = fakeRuntime();
+    ranInChat('root');
     const client = await connect(base, authFor('root'));
 
     const created = parseTool(await client.callTool({ name: 'create_derived_session', arguments: { title: 'Side task', task: 'Do X' } }));
@@ -208,6 +217,7 @@ test('the per-turn limit spans the requests of a turn and starts over with the n
   await withServer(async ({ base }) => {
     sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
     fakeRuntime();
+    ranInChat('root');
     const client = await connect(base, authFor('root'));
     const create = (n: number) => client.callTool({ name: 'create_derived_session', arguments: { title: `T${n}`, task: 'x' } });
 
@@ -375,4 +385,86 @@ test('terminal launch files are private and the token stays out of the command l
 
     assert.equal(prepareTerminalLaunch('bad id; rm -rf /', 3), null);
   });
+});
+
+test('a terminal derived session runs with the permission mode and tools the conversation uses in Chat', async () => {
+  await withServer(async ({ base }) => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    const runtime = fakeRuntime();
+    ranInChat('root', { model: 'opus', effort: 'high' });
+
+    const client = await connect(base, authFor('root'));
+    const created = parseTool(await client.callTool({ name: 'create_derived_session', arguments: { title: 'Side', task: 'Do X' } }));
+    assert.equal(runtime.runs[0].options.newSessionId, created.sessionId);
+    assert.equal(runtime.runs[0].options.permissionMode, 'bypassPermissions');
+    assert.deepEqual(runtime.runs[0].options.toolsSettings, { allowedTools: [], disallowedTools: [], skipPermissions: false });
+    assert.equal(runtime.runs[0].options.model, 'opus');
+    await client.close();
+  });
+});
+
+test('unknown Chat settings: the terminal refuses to create a derived session instead of starting one that hangs', async () => {
+  await withServer(async ({ base }) => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    const runtime = fakeRuntime();
+
+    const client = await connect(base, authFor('root'));
+    const refused: any = await client.callTool({ name: 'create_derived_session', arguments: { title: 'Side', task: 'Do X' } });
+    assert.equal(refused.isError, true);
+    assert.equal(refused.content[0].text, UNKNOWN_RUN_OPTIONS_MESSAGE);
+    assert.equal(runtime.runs.length, 0);
+    assert.equal(sessionsDb.getChildSessions('root').length, 0, 'no session was created');
+
+    // A model alone does not say how tools are approved.
+    rememberSessionRunOptions('root', { model: 'opus', cwd: PROJECT });
+    const stillRefused: any = await client.callTool({ name: 'create_derived_session', arguments: { title: 'Side', task: 'Do X' } });
+    assert.equal(stillRefused.isError, true);
+    await client.close();
+  });
+});
+
+test('the Chat settings survive a restart and fall back to the project', async () => {
+  await withServer(async () => {
+    sessionsDb.createSession('root', 'claude', PROJECT, 'Main');
+    sessionsDb.createSession('sibling', 'claude', PROJECT, 'Other conversation in the project');
+    sessionsDb.createSession('elsewhere', 'claude', '/tmp/another-project', 'Other project');
+    fakeRuntime();
+    ranInChat('sibling');
+
+    // Restart: the in-memory copy is gone, the database keeps it.
+    resetDerivedSessionsStateForTests();
+    assert.deepEqual(resolveChatRunOptions('sibling'), {
+      source: 'session',
+      options: { permissionMode: 'bypassPermissions', toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false } },
+    });
+    // A conversation that never ran in Chat uses its project's last Chat run.
+    assert.equal(resolveChatRunOptions('root')?.source, 'project');
+    assert.equal(resolveChatRunOptions('root')?.options.permissionMode, 'bypassPermissions');
+    // Another project knows nothing.
+    assert.equal(resolveChatRunOptions('elsewhere'), null);
+
+    // The conversation's own choice wins over the project's.
+    rememberSessionRunOptions('root', { permissionMode: 'acceptEdits', cwd: PROJECT });
+    resetDerivedSessionsStateForTests();
+    assert.equal(resolveChatRunOptions('root')?.options.permissionMode, 'acceptEdits');
+  });
+});
+
+test('unattended runs are not taken as the Chat settings', async () => {
+  await withServer(async () => {
+    sessionsDb.createSession('api', 'claude', '/tmp/unattended-project', 'Agent API run');
+    rememberSessionRunOptions('api', { permissionMode: 'bypassPermissions', cwd: '/tmp/unattended-project', unattended: true });
+    resetDerivedSessionsStateForTests();
+    assert.equal(resolveChatRunOptions('api'), null);
+  });
+});
+
+test('the Shell tab keeps only valid Chat settings from the browser', () => {
+  assert.deepEqual(
+    sanitizeChatRunOptions({ permissionMode: 'bypassPermissions', toolsSettings: { allowedTools: ['Bash'], skipPermissions: true, extra: 'x' }, cwd: '/etc' }),
+    { permissionMode: 'bypassPermissions', toolsSettings: { allowedTools: ['Bash'], skipPermissions: true } },
+  );
+  assert.equal(sanitizeChatRunOptions({ permissionMode: 'rootMode' }), null);
+  assert.equal(sanitizeChatRunOptions('bypassPermissions'), null);
+  assert.equal(sanitizeChatRunOptions({ toolsSettings: { allowedTools: [1, 2] } }), null);
 });

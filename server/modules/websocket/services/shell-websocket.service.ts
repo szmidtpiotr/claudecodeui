@@ -32,6 +32,7 @@ type ShellIncomingMessage = {
   provider?: string;
   initialCommand?: string;
   isPlainShell?: boolean;
+  chatRunOptions?: unknown;
 };
 
 type PtySessionEntry = {
@@ -65,7 +66,46 @@ type ShellWebSocketDependencies = {
   ) => { mcpConfigPath: string; settingsPath: string } | null;
   /** Reports from derived sessions waiting for a conversation. */
   getPendingReportCount?: (sessionId: string) => number;
+  /** Records the permission mode / tool settings the Chat tab uses for a conversation. */
+  rememberChatRunOptions?: (sessionId: string, options: Record<string, unknown>) => void;
 };
+
+const CLAUDE_PERMISSION_MODES = new Set(['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan']);
+const TOOL_SETTINGS_KEYS = new Set(['allowedTools', 'disallowedTools', 'skipPermissions']);
+
+/**
+ * The browser's Chat settings for the conversation, reduced to what a run
+ * accepts. The chat sends the same values with every message, so they carry
+ * no more trust than a chat turn does.
+ */
+export function sanitizeChatRunOptions(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const input = value as Record<string, unknown>;
+  const options: Record<string, unknown> = {};
+  if (typeof input.permissionMode === 'string' && CLAUDE_PERMISSION_MODES.has(input.permissionMode)) {
+    options.permissionMode = input.permissionMode;
+  }
+  const tools = input.toolsSettings;
+  if (tools && typeof tools === 'object' && !Array.isArray(tools)) {
+    const settings: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(tools as Record<string, unknown>)) {
+      if (!TOOL_SETTINGS_KEYS.has(key)) {
+        continue;
+      }
+      if (key === 'skipPermissions' && typeof entry === 'boolean') {
+        settings[key] = entry;
+      } else if (key !== 'skipPermissions' && Array.isArray(entry) && entry.every((item) => typeof item === 'string')) {
+        settings[key] = entry;
+      }
+    }
+    if (Object.keys(settings).length > 0) {
+      options.toolsSettings = settings;
+    }
+  }
+  return Object.keys(options).length > 0 ? options : null;
+}
 
 /**
  * Reads a string field from untyped payloads and falls back when absent.
@@ -373,6 +413,12 @@ export function handleShellConnection(
           ? (readBoolean(data.hasSession) && readString(data.sessionId)) || newClaudeSessionId
           : null;
         watchConversation(claudeConversationId || null);
+        if (claudeConversationId) {
+          const chatRunOptions = sanitizeChatRunOptions(data.chatRunOptions);
+          if (chatRunOptions) {
+            dependencies.rememberChatRunOptions?.(claudeConversationId, chatRunOptions);
+          }
+        }
 
         const existingSession = isLoginCommand ? null : ptySessionsMap.get(ptySessionKey);
         if (existingSession) {

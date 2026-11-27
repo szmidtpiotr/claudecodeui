@@ -16,6 +16,8 @@ export type ShellInitMessage = {
   rows: number;
   initialCommand: string | null | undefined;
   isPlainShell: boolean;
+  /** What the Chat tab uses for this conversation (derived sessions inherit it). */
+  chatRunOptions?: { permissionMode?: string; toolsSettings?: Record<string, unknown> };
 };
 
 export type ShellResizeMessage = {

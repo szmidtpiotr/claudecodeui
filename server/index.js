@@ -19,6 +19,7 @@ import {
     configureShellPresence,
     getPendingShellReportCount,
     prepareTerminalLaunch,
+    rememberSessionRunOptions,
     resolveDerivedSessionsHttpPort,
     startDerivedSessionsHttpServer,
 } from '@/modules/providers/index.js';
@@ -164,6 +165,7 @@ const wss = createWebSocketServer(server, {
         shouldAutoOpenUrlFromOutput,
         prepareClaudeTerminal: prepareTerminalLaunch,
         getPendingReportCount: getPendingShellReportCount,
+        rememberChatRunOptions: (sessionId, options) => rememberSessionRunOptions(sessionId, options),
     },
     getPluginPort,
 });

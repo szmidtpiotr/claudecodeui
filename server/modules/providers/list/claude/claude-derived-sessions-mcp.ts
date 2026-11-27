@@ -22,6 +22,7 @@ import {
 import {
   createFreshDerivedSession,
   getParentSessionId,
+  getRememberedRunOptions,
   isDerivedTurnRunning,
   listDerivedSessions,
   sendToDerivedSession,
@@ -58,6 +59,12 @@ export type DerivedSessionsContext = {
   getCurrentSessionId: () => string | null;
   /** Options of the parent run that a derived run inherits (model, permission mode, tools, effort). */
   parentOptions: Record<string, unknown>;
+  /**
+   * Set when the session has no run options of its own (a CLI in the Shell
+   * tab): looked up at each call; null = unknown, and starting a derived run
+   * is refused instead of giving it permissions nobody can approve.
+   */
+  getParentOptions?: () => Record<string, unknown> | null;
   userId: string | number | null;
   /**
    * The session's parent, looked up when the run starts. send_to_parent_session
@@ -75,10 +82,18 @@ const text = (value: unknown, isError = false): ToolResult => ({
 
 const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+export const UNKNOWN_RUN_OPTIONS_MESSAGE =
+  'Cannot start a derived session from this terminal: the permission mode and tool settings this conversation '
+  + 'uses in Chat are not known, so the derived session would wait for approvals nobody can give. '
+  + 'Ask the user to open this conversation in the Chat tab (or reopen it in the Shell tab) and send one message there, then try again.';
+
 export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
   const getMessages = context.getSessionMessages
     ?? (sdkGetSessionMessages as unknown as NonNullable<DerivedSessionsContext['getSessionMessages']>);
   let createdThisTurn = 0;
+  /** The options a derived run inherits; null when they cannot be determined. */
+  const parentOptions = (): Record<string, unknown> | null =>
+    (context.getParentOptions ? context.getParentOptions() : context.parentOptions);
 
   /** The current session, and that `sessionId` is one of its derived sessions. */
   function resolveDescendant(sessionId: string): { currentSessionId: string } | ToolResult {
@@ -98,6 +113,11 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
       return text('The current session has no id yet, so it cannot start a derived session.', true);
     }
 
+    const runOptions = parentOptions();
+    if (!runOptions) {
+      return text(UNKNOWN_RUN_OPTIONS_MESSAGE, true);
+    }
+
     const currentDepth = sessionsDb.getSessionAncestorIds(currentSessionId).length;
     const refusal = checkDerivedSessionGuardrails({ createdThisTurn, currentDepth });
     if (refusal) {
@@ -110,7 +130,7 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
         parentSessionId: currentSessionId,
         title: args.title,
         task: args.task,
-        runOptions: context.parentOptions,
+        runOptions,
         userId: context.userId,
       });
       return text({
@@ -168,12 +188,18 @@ export function createDerivedSessionHandlers(context: DerivedSessionsContext) {
     if ('content' in resolved) {
       return resolved;
     }
+    // A new turn in the child runs with what the child last ran with, else
+    // with the parent's options; with neither, it could not get approvals.
+    const runOptions = parentOptions();
+    if (!runOptions && !getRememberedRunOptions(args.sessionId)) {
+      return text(UNKNOWN_RUN_OPTIONS_MESSAGE, true);
+    }
     try {
       const sent = sendToDerivedSession({
         parentSessionId: resolved.currentSessionId,
         childSessionId: args.sessionId,
         message: args.message,
-        runOptions: context.parentOptions,
+        runOptions,
         userId: context.userId,
       });
       return text({
